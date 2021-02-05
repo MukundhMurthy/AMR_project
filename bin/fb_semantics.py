@@ -1,4 +1,4 @@
-from utils import *
+from .utils import *
 
 import torch
 from esm import Alphabet, FastaBatchedDataset, ProteinBertModel, pretrained
