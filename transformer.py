@@ -11,7 +11,8 @@ from Bio import SeqIO
 import re
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser
-# import wandb
+import wandb
+import uuid
 
 def mask_fn(x, mask_diagonal=False):
     # ipdb.set_trace()
@@ -257,44 +258,28 @@ class UniProt_Data(Dataset):
             idx = idx.tolist()
         return self.X[idx, :], self.y[idx, :]
 
-def train(arg):
-    #todo
-    pass
 
-if __name__ == '__main__':
-    dataset = UniProt_Data(filename="uniprot_gpb_rpob", max_len=2000, truncate=True, test=True)
-    ### params
-    batch_size = 50
-    hidden = 20
-    embed_dim = 40
-    heads = 4
-    depth = 2
-    drop_prob = 0
-    mask = True
-    lr = 1e-3
-    epochs = 5
-    weight = None
-    within_epoch_interval = 1
-    lr_scheduler = 'plateau' # LambdaLR or Plateau method
-    ###
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
+def train(arg, data):
+    if arg.wandb:
+        unique_run_id = uuid.uuid1().hex[0:8]
+        wandb.init(config={"Unique Run ID": unique_run_id}, project='Antimicrobial resistance', name=arg.name_run)
+        wandb.config.update(arg)
+    train_loader = DataLoader(data, batch_size=arg.batch_size, shuffle=True, num_workers=0, drop_last=True)
     iterator = iter(train_loader)
     # print(sample[0].size(), sample[1].size())
-    model = Transformer(dataset.vocab_size, hidden=hidden, embed_dim=embed_dim, heads=heads, depth=depth,
-                        seq_length=dataset.max_len, drop_prob=0, mask=mask)
+    model = Transformer(dataset.vocab_size, hidden=arg.hidden, embed_dim=arg.embed_dim, heads=arg.heads, depth=arg.depth,
+                        seq_length=dataset.max_len, drop_prob=0, mask=True)
     if torch.cuda.is_available():
         model.cuda()
-    opt = torch.optim.Adam(lr=lr, params=model.parameters())
-    if lr_scheduler is not None:
-        if lr_scheduler == 'lambda_lr':
+    opt = torch.optim.Adam(lr=arg.lr, params=model.parameters())
+    if arg.lr_scheduler is not None:
+        if arg.lr_scheduler == 'lambda_lr':
             raise NotImplementedError
-        if lr_scheduler == 'plateau':
-            sch = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', verbose=True)
-    # hi = model(sample[0].long())
-    criterion = nn.CrossEntropyLoss(weight=weight, ignore_index=0)
-    # ipdb.set_trace()
+        if arg.lr_scheduler == 'plateau':
+            sch = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', patience=arg.patience, verbose=True)
+    criterion = nn.CrossEntropyLoss(weight=arg.weight, ignore_index=0)
     count = 0
-    for e in range(epochs):
+    for e in range(arg.epochs):
         for t in range(len(train_loader)):
             model.train()
             X, y = next(iterator)
@@ -304,12 +289,36 @@ if __name__ == '__main__':
             training_loss.backward()
             opt.step()
             sch.step(training_loss)
-            if t % within_epoch_interval == 0:
+            if t % arg.within_epoch_interval == 0:
                 print('Epoch: %d, Iteration %d, loss = %.4f' % (e, t, training_loss.item()))
-                count+=1
+                count += 1
+    pass
+
+if __name__ == '__main__':
+    dataset = UniProt_Data(filename="uniprot_gpb_rpob", max_len=2000, truncate=True, test=True)
 
     #todo build out argument parser
     parser = ArgumentParser()
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size for training set")
+    parser.add_argument("--hidden", type=int, default=64, help="# of hidden layers for transformer block")
+    parser.add_argument("--embed_dim", type=int, default=32, help="embedding dimension for transformer")
+    parser.add_argument("--heads", type=int, default=4, help="# of heads for transformer")
+    parser.add_argument("--depth", type=int, default=2, help='# of transformer block repeats')
+    parser.add_argument("--drop_prob", type=float, default=0.1, help='Dropout for transformer blocks')
+    parser.add_argument("--learning_rate", type=float, default=1e-3, help='learning rate')
+    parser.add_argument("--epochs", type=int, default=3, help="number of training epochs")
+    parser.add_argument("--model_type", choices=['attention'], default='attention', help="model to pretrain")
+    parser.add_argument("--lr_scheduler", choices=['plateau', 'adaptive'], default='plateau')
+    parser.add_argument("--within_epoch_interval", type=int, default=5, help="show update ever # of bactches")
+    parser.add_argument("--patience", type=int, default=1, help="num epochs for lr scheduler to wait before decreasing")
+    parser.add_argument("--wandb", action="store_true", help="log results using wandb")
+    parser.add_argument('--name_run', type=str, help="name of run to save in wandb")
+
+    args = parser.parse_args()
+
+    train(args, dataset)
+
+
 
 
 
