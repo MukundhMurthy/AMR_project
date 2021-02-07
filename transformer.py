@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+# from torch.nn.functional import one_hot
 # from torch.autograd import Variable
 # import numpy as np
 from torch.utils.data import Dataset
@@ -8,14 +9,18 @@ import ipdb
 # from Bio.Seq import Seq
 from Bio import SeqIO
 import re
+from torch.utils.data import DataLoader
+from argparse import ArgumentParser
+# import wandb
 
-
-def mask(x, mask_diagonal=False):
-    ipdb.set_trace()
+def mask_fn(x, mask_diagonal=False):
+    # ipdb.set_trace()
     b, h, w = x.size()
     indices = torch.triu_indices(h, w, offset=0 if mask_diagonal else 1)
-    x[:, indices[0], indices[1]] = float('-inf')
-    x.masked_fill_(x == 0, float('-inf'))
+    mask = torch.zeros_like(x)
+    mask[:, indices[0], indices[1]] = 1
+    final_mask = (mask == 1) & (x == 0)
+    x.masked_fill_(final_mask, float('-inf'))
     return x
 
 
@@ -29,7 +34,7 @@ class SelfAttention(nn.Module):
         self.toqueries = nn.Linear(emb, emb * heads, bias=False)
         self.tovalues = nn.Linear(emb, emb * heads, bias=False)
 
-        self.unifyheads = nn.Linear(emb*heads, emb, bias=False)
+        self.unifyheads = nn.Linear(emb * heads, emb, bias=False)
 
     def forward(self, x):
         b, t, k = x.size()
@@ -38,16 +43,16 @@ class SelfAttention(nn.Module):
         queries = self.toqueries(x).contiguous().view(b, t, h, k)
         values = self.tovalues(x).contiguous().view(b, t, h, k)
 
-        keys = keys.transpose(1, 2).contiguous().view(b*h, t, k)
-        queries = queries.transpose(1, 2).contiguous().view(b*h, t, k)
-        values = values.transpose(1, 2).contiguous().view(b*h, t, k)
+        keys = keys.transpose(1, 2).contiguous().view(b * h, t, k)
+        queries = queries.transpose(1, 2).contiguous().view(b * h, t, k)
+        values = values.transpose(1, 2).contiguous().view(b * h, t, k)
 
-        dot = torch.bmm(keys, queries.transpose(1, 2))  #(b*h, t, t)
+        dot = torch.bmm(keys, queries.transpose(1, 2))  # (b*h, t, t)
         if self.mask:
-            dot = mask(dot)
+            dot = mask_fn(dot)
         dot = F.softmax(dot, dim=2)
-        out = torch.bmm(dot, values).contiguous().view(b, t, h*k)
-        print(out.size())
+        out = torch.bmm(dot, values).contiguous().view(b, t, h * k)
+        # print(out.size())
         out = self.unifyheads(out)
         assert out.size() == (b, t, k)
         return out
@@ -58,12 +63,12 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.emb = emb
         self.heads = heads
-        self.mask=mask
+        self.mask = mask
 
         self.feedforward = nn.Sequential(
-            nn.Linear(emb, hidden*emb),
+            nn.Linear(emb, hidden * emb),
             nn.ReLU(),
-            nn.Linear(hidden*emb, emb)
+            nn.Linear(hidden * emb, emb)
         )
 
         self.attention = SelfAttention(emb, heads=heads, mask=mask)
@@ -91,15 +96,16 @@ class Transformer(nn.Module):
             blocks.append(TransformerBlock(emb=embed_dim, hidden=hidden, heads=heads, drop_prob=drop_prob, mask=mask))
 
         self.blocks = nn.Sequential(*blocks)
-        self.to_prob = nn.Linear(embed_dim, vocab_size)
+        self.to_prob = nn.Linear(embed_dim, vocab_size+1)
 
     def forward(self, x):
         embedding = self.token_embed(x) + self.pos_embed(x)
         b, t, k = embedding.size()
         out = self.blocks(embedding)
         probs = self.to_prob(out)
-        log_probs = F.log_softmax(probs)
-        return log_probs
+        # log_probs = F.log_softmax(probs)
+        # return log_probs
+        return probs
 
 
 # class ENA_Data(Dataset):
@@ -118,42 +124,61 @@ class Transformer(nn.Module):
 
 
 class Preprocesser:
-    def __init__(self, fname, condition, max_len=None, truncate=False):
+    def __init__(self, fname, condition, max_len=None, truncate=False, forbidden_aas=('X'), debug_mode=False):
+        if forbidden_aas is None:
+            forbidden_aas = ['X']
         root_dir = __file__.split('/')[:-1]
         root_dir = '/'.join(root_dir)
         fname = root_dir + '/{0}.fasta'.format(fname)
+        self.debug_mode = debug_mode
+        self.val = lambda x: 2000 if self.debug_mode else len(x) + 1
+        self.truncate = truncate
+        self.max_len = max_len
         self.fname = fname
         self.records = list(SeqIO.parse(fname, "fasta"))
-        self.condition = condition # tuple (species, value) or (identifier, value)
-
-        seq_dict, self.num_seqs = self.collect_sequences()
-        self.seqs = list(seq_dict.keys())
-        self.max_len = max([len(seq) for seq in self.seqs]) if max_len is None else max_len
-        if max_len is not None:
-            self.truncate = truncate
+        self.condition = condition  # tuple (species, value) or (identifier, value)
         self.metas = self.save_meta()
+        self.forbidden_aas = list(forbidden_aas)
+        self.seq_dict, self.num_seqs = self.collect_sequences()
+        self.seqs = list(self.seq_dict.keys())
+        if max_len is None:
+            self.max_len = max([len(seq) for seq in self.seqs])
         amino_acids = [
             'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H',
             'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W',
             'Y', 'V', 'X', 'Z', 'J', 'U', 'B',
         ]
-        self.vocab = {aa: idx + 1 for idx, aa in enumerate(amino_acids)}
+        relevant_aas = list(set(amino_acids)-set(self.forbidden_aas))
+        self.vocab = {aa: idx + 1 for idx, aa in enumerate(relevant_aas)}
 
     def collect_sequences(self):
-        seqs={}
-        for record in self.records:
+        seqs = {}
+        for record in self.records[:self.val(self.records)]:
             cond1 = "X" in record.seq
-            access = self.get_access(record.description)
+            access = self.get_access(record.description)[0]
             meta_info = self.metas[access]
-            cond2 = self.condition is not None and meta_info[self.condition[0]]!=self.condition[1]
-            cond3 = self.truncate==False and len(record.seq)>self.max_len
+            if self.condition is not None:
+                cond2 = meta_info[self.condition[0]] != self.condition[1]
+            else:
+                cond2 = False
+            if self.max_len is None:
+                cond3 = False
+            else:
+                cond3 = self.truncate == False and len(record.seq) > self.max_len
             if cond1 or cond2 or cond3:
                 continue
             meta_info['seq_len'] = len(record.seq)
+            seqs[record.seq] = []
             seqs[record.seq].append(meta_info)
-        print("After elimination of sequences with X amino acids and selection of sequences where {0} \
-        is equal to {1}, {2} sequences are passed for training").format(self.condition[0], self.condition[1], \
-                                                                        len(seqs.keys()))
+        if self.condition is not None:
+            print("After elimination of sequences with {0} forbidden amino acids and selection of sequences where {1} \
+            is equal to {2}, {3} sequences are passed for training").format("".join([aa + ' ,' for aa in \
+                                                                                     self.forbidden_aas]),
+                                                                            self.condition[0], self.condition[1],
+                                                                            len(seqs.keys()))
+        else:
+            print("After elimination of sequences with {0} forbidden amino acids. {1} sequences are passed for training"
+                  .format("".join([aa + ' ,' for aa in self.forbidden_aas]), len(seqs.keys())))
         return seqs, len(seqs.keys())
 
     @staticmethod
@@ -167,43 +192,62 @@ class Preprocesser:
                 if not line.startswith('>'):
                     continue
                 full_line = line[1:].rstrip()
-                accession = self.get_access(full_line)
+                accession = self.get_access(full_line)[0]
                 metas[accession] = {
-                    'protein_entry': re.findall('(?<=....\|).*?(?=\s)', full_line),
-                    'gene_entry': re.findall('(?<=\s).*?(?=\sOS)', full_line),
-                    'organism_name': re.findall('(?<=OS\=).*?(?=\sOX\=)', full_line),
-                    'organism_identifier': re.findall('(?<=OX\=).*?(?=\sGN\=)', full_line),
-                    'gene_name': re.findall('(?<=GN\=).*?(?=\sPE\=)', full_line),
-                    'protein_existence': re.findall('(?<=PE\=)\d(?=\sSV\=)', full_line),
-                    'sequence_version': re.findall('(?<=SV\=).*$', full_line)
+                    'protein_entry': re.findall('(?<=....\|).*?(?=\s)', full_line)[0],
+                    'gene_entry': re.findall('(?<=\s).*?(?=\sOS)', full_line)[0],
+                    'organism_name': re.findall('(?<=OS\=).*?(?=\sOX\=)', full_line)[0],
+                    'organism_identifier': re.findall('(?<=OX\=).*?(?=\sGN\=)', full_line)[0],
+                    'gene_name': re.findall('(?<=GN\=).*?(?=\sPE\=)', full_line)[0],
+                    'protein_existence': re.findall('(?<=PE\=)\d(?=\sSV\=)', full_line)[0],
+                    'sequence_version': re.findall('(?<=SV\=).*$', full_line)[0]
                 }
         return metas
 
     def pad(self, seq):
-        if len(seq)>self.max_len and self.truncate==True:
+        if len(seq) > self.max_len and self.truncate == True:
             seq = seq[:self.max_len]
-        elif len(seq)<self.max_len:
-            seq = seq.extend([0] * (self.max_len - len(seq)))
+        elif len(seq) < self.max_len:
+            seq.extend([0] * (self.max_len - len(seq)))
         return seq
 
-    def tokenize(self):
+    def tokenize_and_pad(self):
+        padded_aas = []
         for seq in self.seqs:
             list_aa_indices = [self.vocab[char] for char in seq]
-        padded_aa_indices = self.pad(list_aa_indices)
-        return padded_aa_indices
+            padded_aa_indices = self.pad(list_aa_indices)
+            padded_aas.append(padded_aa_indices)
+        return padded_aas
 
+    def X_y_from_seq(self):
+        tokenized = self.tokenize_and_pad()
+        tokenized_tensor = torch.Tensor(tokenized)
+        # assert tokenized_tensor.size() == self.num_seqs, self.max_len
+        X = tokenized_tensor[:, :-1]
+        y = tokenized_tensor[:, 1:]
+        # print(X.size(), y.size())
+        # y = one_hot(tokenized_tensor[:, 1:].to(torch.int64), num_classes=len(self.vocab))
+        return X, y
 
     def collate_fn(batch):
+        data = [item[0] for item in batch]
+        labels = [item[1] for item in batch]
 
         return batch
 
 
+# todo – implement batch sampler if I want to keep all X, y's for a particular sequence together
+
 class UniProt_Data(Dataset):
-    def __init__(self, condition, filename="uniprot_gpb_rpob"):
+    def __init__(self, condition=None, max_len=None, truncate=False, forbidden_aas=('X'),
+                 filename="uniprot_gpb_rpob", test=False):
         super().__init__()
-        preprocess = Preprocesser(filename, condition)
+        preprocess = Preprocesser(filename, condition, max_len=max_len, truncate=truncate,
+                                  forbidden_aas=forbidden_aas, debug_mode=test)
         self.seqs = preprocess.seqs
-        self.maxlen = preprocess.maxlen
+        self.max_len = preprocess.max_len
+        self.X, self.y = preprocess.X_y_from_seq()
+        self.vocab_size = len(list(preprocess.vocab.keys()))
 
     def __len__(self):
         return len(self.seqs)
@@ -211,17 +255,64 @@ class UniProt_Data(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
+        return self.X[idx, :], self.y[idx, :]
 
-
-
-
-
-
-
-
+def train(arg):
+    #todo
+    pass
 
 if __name__ == '__main__':
-    UniProt_Data("uniprot_gpb_rpob")
+    dataset = UniProt_Data(filename="uniprot_gpb_rpob", max_len=2000, truncate=True, test=True)
+    ### params
+    batch_size = 50
+    hidden = 20
+    embed_dim = 40
+    heads = 4
+    depth = 2
+    drop_prob = 0
+    mask = True
+    lr = 1e-3
+    epochs = 5
+    weight = None
+    within_epoch_interval = 1
+    lr_scheduler = 'plateau' # LambdaLR or Plateau method
+    ###
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
+    iterator = iter(train_loader)
+    # print(sample[0].size(), sample[1].size())
+    model = Transformer(dataset.vocab_size, hidden=hidden, embed_dim=embed_dim, heads=heads, depth=depth,
+                        seq_length=dataset.max_len, drop_prob=0, mask=mask)
+    if torch.cuda.is_available():
+        model.cuda()
+    opt = torch.optim.Adam(lr=lr, params=model.parameters())
+    if lr_scheduler is not None:
+        if lr_scheduler == 'lambda_lr':
+            raise NotImplementedError
+        if lr_scheduler == 'plateau':
+            sch = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', verbose=True)
+    # hi = model(sample[0].long())
+    criterion = nn.CrossEntropyLoss(weight=weight, ignore_index=0)
+    # ipdb.set_trace()
+    count = 0
+    for e in range(epochs):
+        for t in range(len(train_loader)):
+            model.train()
+            X, y = next(iterator)
+            out = model(X.long()).transpose(1, 2)
+            training_loss = criterion(out, y.long())
+            opt.zero_grad()
+            training_loss.backward()
+            opt.step()
+            sch.step(training_loss)
+            if t % within_epoch_interval == 0:
+                print('Epoch: %d, Iteration %d, loss = %.4f' % (e, t, training_loss.item()))
+                count+=1
+
+    #todo build out argument parser
+    parser = ArgumentParser()
+
+
+
     # tens = torch.randint(1, 7, (10, 8))
     # print(tens.size())
     # tens = torch.cat((tens, torch.zeros([10, 3]).type(torch.LongTensor)), dim=1)
