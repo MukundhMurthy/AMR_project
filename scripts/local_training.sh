@@ -1,12 +1,13 @@
-python ../trainer/transformer.py \
+cd ..
+python3 -m trainer.main \
     --batch_size 16 \
     --hidden 16 \
     --embed_dim 16 \
     --heads 1 \
     --depth 1 \
-    --drop_prob 0 \
+    --drop_prob 0.1 \
     --learning_rate 1e-2 \
-    --epochs 2 \
+    --epochs 10 \
     --model_type attention \
     --lr_scheduler plateau \
     --within_epoch_interval 5 \
@@ -15,4 +16,5 @@ python ../trainer/transformer.py \
     --split_method random \
     --manual_seed 42 \
     --num_workers 0 \
-    --wandb
+    --es_patience 3 \
+#    --wandb
