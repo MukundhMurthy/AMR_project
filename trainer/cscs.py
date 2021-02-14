@@ -1,73 +1,107 @@
 # todo define semantics and grammaticality pipeline
 import torch
-import ipdb
 from .models import Transformer
-from .main import train_parser
-from .preprocess import UniProt_Data
-from .utils import generate_mutations, aa_sequence
-from torch.nn.parallel import DistributedDataParallel
+from .utils import generate_mutations, aa_sequence, read_fasta, tokenize_and_pad, download_from_gcloud_bucket
 from collections import OrderedDict
-import time
-import argparse
+import torch.nn.functional as F
+import wandb
+import ipdb
 
 
-def cscs_parser(train_parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description='Collect arguments for CSCS evaluation',
-                                     parents=[train_parser])
-    parser.add_argument('--cached_model_fname', help='filename to load weights')
-    parser.add_argument('--POI', help='positions of interest to mutate')
-    parser.add_argument('--wt_seqs', help='wildtype sequences for baseline embeddings and probaility prior')
-    parser.add_argument('--vocab_file', help="vocab file for interconversion between indices and aa\'s")
-
-
-class CSCS_objective():
-    def __init__(self, model, args, dataset):
+class CSCS_objective:
+    def __init__(self, args, dataset, model=None, cscs_debug=False):
         torch.autograd.set_grad_enabled = False
+        ipdb.set_trace()
         if model is None:
-            model = load_empty_model(args)
+            model = load_empty_model(args, dataset)
         else:
             model.eval()
         self.model = model
-        self.positions = args.POI
-        self.wt_seqs = args.wt_seqs
-        self.mut_seq_dict = generate_mutations
+        if args.job_dir is None:
+            self.positions_file = args.POI_file
+            self.wt_seqs_file = args.wt_seqs_file
+        else:
+            self.positions_file = download_from_gcloud_bucket(args.POI_file, 'json')
+            self.wt_seqs_file = download_from_gcloud_bucket(args.wt_seqs_file, 'fasta')
+        self.wt_seqs = read_fasta(self.wt_seqs_file)
+        self.mut_seq_dict = generate_mutations(self.wt_seqs_file, self.positions_file)
         self.seq_dict = dataset.seq_dict
+        self.dataset = dataset
+        self.cscs_debug=cscs_debug
+        if args.wandb:
+            wandb.save(self.positions_file)
+            wandb.save(self.wt_seqs_file)
 
-    def log_embeddings(self):
-        # for tokens in self.mut_seq_dict:
-        # self.seq_dict[seq]["embedding"] =
-        pass
+        # with open(args.vocab_file, 'r') as j:
+        #     self.vocab = json.loads(j.read())
 
     def compute_semantics(self):
-        pass
+        with torch.no_grad():
+            tokenization_params = [self.dataset.vocab, self.dataset.max_len, self.dataset.truncate]
+            for wt_seq in self.wt_seqs:
+                wt_seq_tokens = tokenize_and_pad([wt_seq], *tokenization_params)
+                tokenized_wt_tensor = torch.Tensor(wt_seq_tokens[0])
+                wt_embedding = self.model(tokenized_wt_tensor.unsqueeze(0).long())
+                list_muts = list(self.mut_seq_dict[str(wt_seq.seq)].keys())
+                if self.cscs_debug:
+                    list_muts = list_muts[:5]
+                tokens = tokenize_and_pad(list_muts, *tokenization_params)
+                tokenized_tensor = torch.Tensor(tokens)
+                mut_embeddings = self.model(tokenized_tensor.long())
+                l1_norm = abs(torch.sum(wt_embedding-mut_embeddings, dim=[1, 2])).tolist()
+                for mut, mut_embedding, l1_difference in zip(list_muts, mut_embeddings.tolist(), l1_norm):
+                    self.mut_seq_dict[str(wt_seq.seq)][mut]['l1_semantic_diff'] = l1_difference
+                    self.mut_seq_dict[str(wt_seq.seq)][mut]['embedding'] = mut_embedding
+        return self
 
-    def compute_grammar(model, seq_meta):
-        pass
+    def compute_grammar(self):
+        for wt_seq in self.wt_seqs:
+            list_muts = list(self.mut_seq_dict[str(wt_seq.seq)].keys())
+            if self.cscs_debug:
+                list_muts = list_muts[:5]
+            for mut in list_muts:
+                embedding = torch.Tensor(self.mut_seq_dict[str(wt_seq.seq)][mut]['embedding'])
+                mutation_name = self.mut_seq_dict[str(wt_seq.seq)][mut]['mut_abbrev']
+                pos = mutation_name[1:-1]
+                aa = mutation_name[-1]
+                softmax_embedding = F.softmax(embedding, dim=1)
+                grammaticality = softmax_embedding[int(pos)-2, list(self.dataset.vocab.keys()).index(aa)]
+                self.mut_seq_dict[str(wt_seq.seq)][mut]['grammaticality'] = grammaticality
+        return self.mut_seq_dict
 
     @staticmethod
     def get_aa_sequence(seq):
         return aa_sequence(seq)
 
 
-def load_empty_model(arg):
+def load_empty_model(arg, dataset):
     empty_model = Transformer(dataset.vocab_size, hidden=arg.hidden, embed_dim=arg.embed_dim, heads=arg.heads,
                               depth=arg.depth,
                               seq_length=dataset.max_len, drop_prob=arg.drop_prob, mask=True)
     checkpoint = torch.load(arg.state_dict_fname, map_location=torch.device('cpu') if not torch.cuda.is_available()
-    else torch.device("cuda: 0"))
+                            else torch.device("cuda: 0"))
     if not torch.cuda.is_available():
-        checkpoint = OrderedDict()
+        new_checkpoint = OrderedDict()
         for k, v in checkpoint.items():
             name = k.replace("module.", "")  # remove module.
-            checkpoint[name] = v
-    model = empty_model.load_state_dict(checkpoint)
+            new_checkpoint[name] = v
+    else:
+        new_checkpoint = checkpoint
+    empty_model.load_state_dict(new_checkpoint)
+    model = empty_model
     model.eval()
-    return empty_model
+    return model
 
 
-if __name__ == "__main__":
-    train_args = train_parser()
-    cscs_args = cscs_parser(train_args)
+# if __name__ == "__main__":
+#     from .main import cscs_parser
+#     parser = train_parser()
+#     cscs_parser = cscs_parser(parser)
+#     cscs_args = cscs_parser.parse_args()
+#
+#     dataset = UniProt_Data(filename="uniprot_gpb_rpob", max_len=1600, truncate=True, test=True,
+#                            job_dir=cscs_args.job_dir)
+#     cscs_computer = CSCS_objective(cscs_args, dataset, cscs_debug=True)
+#     seq_dict = cscs_computer.compute_semantics()
+#     seq_dict = cscs_computer.compute_grammar()
 
-    dataset = UniProt_Data(filename="uniprot_gpb_rpob", max_len=1600, truncate=True, test=True,
-                           job_dir=train_args.job_dir)

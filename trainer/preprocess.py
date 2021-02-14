@@ -5,12 +5,14 @@ import re
 from torch.utils.data import Dataset
 import torch
 from google.cloud import storage
-
+from .utils import tokenize_and_pad, read_fasta, download_from_gcloud_bucket
+from collections import OrderedDict
+import ipdb
 
 
 class Preprocesser:
-    def __init__(self, fname, condition, max_len=None, truncate=False, forbidden_aas=('X'), debug_mode=False,
-                 job_dir=None):
+    def __init__(self, fname, condition, min_len=None, max_len=None, truncate=False, forbidden_aas=('X'),
+                 debug_mode=False, job_dir=None):
         if forbidden_aas is None:
             forbidden_aas = ['X']
         # root_dir = __file__.split('/')[:-1]
@@ -20,13 +22,9 @@ class Preprocesser:
         if job_dir is None:
             fname = '{0}.fasta'.format(fname)
         else:
-            storage_client = storage.Client()
-            public_bucket = storage_client.bucket('amr-transformer')
-            blob = public_bucket.blob('{0}.fasta'.format(fname))
-            blob.download_to_filename('{0}.fasta'.format(fname))
-            fname = "./{0}.fasta".format(fname)
+            fname = download_from_gcloud_bucket(fname, 'fasta')
         # else:
-        self.records = list(SeqIO.parse(fname, "fasta"))
+        self.records = read_fasta(fname)
         # except:
         #     fname = root_dir + '/{0}.fasta'.format(fname)
         #     self.records = list(SeqIO.parse(fname, "fasta"))
@@ -36,6 +34,7 @@ class Preprocesser:
         self.val = lambda x: 500 if self.debug_mode else len(x) + 1
         self.truncate = truncate
         self.max_len = max_len
+        self.min_len = min_len
         self.fname = fname
         self.condition = condition  # tuple (species, value) or (identifier, value)
         self.metas = self.save_meta()
@@ -49,12 +48,13 @@ class Preprocesser:
             'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W',
             'Y', 'V', 'X', 'Z', 'J', 'U', 'B',
         ]
-        relevant_aas = list(set(amino_acids) - set(self.forbidden_aas))
-        self.vocab = {aa: idx + 1 for idx, aa in enumerate(relevant_aas)}
-        jsn = json.dumps(self.vocab)
-        f = open("vocab.json", "w")
-        f.write(jsn)
-        f.close()
+        for aa in self.forbidden_aas:
+            amino_acids.remove(aa)
+        self.vocab = OrderedDict({aa: idx + 1 for idx, aa in enumerate(amino_acids)})
+        # jsn = json.dumps(self.vocab)
+        # f = open("vocab.json", "w")
+        # f.write(jsn)
+        # f.close()
 
     def collect_sequences(self):
         seqs = {}
@@ -70,9 +70,14 @@ class Preprocesser:
                 cond3 = False
             else:
                 cond3 = self.truncate == False and len(record.seq) > self.max_len
+            if self.min_len is None:
+                cond4 = False
+            else:
+                cond4  = len(record.seq) < self.min_len
             if cond1 or cond2 or cond3:
                 continue
             meta_info['seq_len'] = len(record.seq)
+            seqs[record.seq] = {}
             seqs[record.seq]["meta_info"] = meta_info
             # seqs[record.seq].append(meta_info)
         if self.condition is not None:
@@ -110,24 +115,8 @@ class Preprocesser:
                 }
         return metas
 
-    def pad(self, seq):
-        if len(seq) > self.max_len and self.truncate == True:
-            seq = seq[:self.max_len]
-        elif len(seq) < self.max_len:
-            seq.extend([0] * (self.max_len - len(seq)))
-        return seq
-
-    def tokenize_and_pad(self):
-        padded_aas = []
-        for seq in self.seqs:
-            list_aa_indices = [self.vocab[char] for char in seq]
-            padded_aa_indices = self.pad(list_aa_indices)
-            self.seq_dict[seq]["tokens"] = padded_aa_indices
-            padded_aas.append(padded_aa_indices)
-        return padded_aas
-
     def X_y_from_seq(self):
-        tokenized = self.tokenize_and_pad()
+        tokenized = tokenize_and_pad(self.seqs, self.vocab, self.max_len, self.truncate)
         tokenized_tensor = torch.Tensor(tokenized)
         # assert tokenized_tensor.size() == self.num_seqs, self.max_len
         X = tokenized_tensor[:, :-1]
@@ -138,15 +127,19 @@ class Preprocesser:
 
 
 class UniProt_Data(Dataset):
-    def __init__(self, condition=None, max_len=None, truncate=False, forbidden_aas=('X'),
+    def __init__(self, condition=None, min_len=None, max_len=None, truncate=False, forbidden_aas=('X'),
                  filename="uniprot_gpb_rpob", test=False, job_dir=None):
         super().__init__()
-        preprocess = Preprocesser(filename, condition, max_len=max_len, truncate=truncate,
+        preprocess = Preprocesser(filename, condition, min_len=min_len, max_len=max_len, truncate=truncate,
                                   forbidden_aas=forbidden_aas, debug_mode=test, job_dir=job_dir)
         self.seqs = preprocess.seqs
         self.max_len = preprocess.max_len
         self.X, self.y = preprocess.X_y_from_seq()
         self.vocab_size = len(list(preprocess.vocab.keys()))
+        self.seq_dict = preprocess.seq_dict
+        self.vocab = preprocess.vocab
+        self.min_len = preprocess.min_len
+        self.truncate = preprocess.truncate
 
     def __len__(self):
         return len(self.seqs)
