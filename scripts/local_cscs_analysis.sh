@@ -12,7 +12,7 @@ python3 -m trainer.main \
     --lr_scheduler plateau \
     --within_epoch_interval 5 \
     --patience 1 \
-    --name_run first_trial \
+    --name_run first_trials \
     --split_method random \
     --manual_seed 42 \
     --num_workers 0 \
@@ -20,6 +20,9 @@ python3 -m trainer.main \
     --state_dict_fname "saved_models/first_trial_100.pth" \
     --wt_seqs_file "escape_validation/anchor_seqs.fasta" \
     --POI_file "escape_validation/regions_of_interest.json" \
-    --cscs_debug True \
-    --eval_batch_size 16 \
+    --eval_batch_size 2 \
+    --max_len 1500 \
+    --min_len 1300 \
+    --cscs_debug \
+#    --truncate \
 #    --wandb

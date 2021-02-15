@@ -20,7 +20,7 @@ def train(arg, dataset):
             backend='nccl',
             init_method='env://'
         )
-        device = torch.device('cuda:{}'.format(torch.cuda.current_device())) if torch.cuda.is_available() else 'cpu'
+        device = torch.device('cuda:{}'.format(torch.cuda.current_device()))
         logging.info("The default device is {0}".format(device))
     else:
         device = 'cpu'
@@ -42,9 +42,11 @@ def train(arg, dataset):
                         depth=arg.depth,
                         seq_length=dataset.max_len, drop_prob=arg.drop_prob, mask=True)
 
+    model.to(device)
+
     if torch.cuda.device_count() > 1:
         logging.info("The total number of GPUs is {0}".format(torch.cuda.device_count()))
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[0, 1, 2, 3])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[0, 1, 2, 3, 4, 5, 6, 7])
 
     opt = torch.optim.Adam(lr=arg.learning_rate, params=model.parameters())
     if arg.lr_scheduler is not None:
@@ -52,6 +54,7 @@ def train(arg, dataset):
             raise NotImplementedError
         if arg.lr_scheduler == 'plateau':
             sch = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', patience=arg.patience, verbose=True)
+
     criterion = nn.CrossEntropyLoss(weight=None, ignore_index=0)
     count = 0
     no_improvement = 0

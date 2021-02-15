@@ -25,8 +25,7 @@ def train_val_test_split(dataset, mode='random', random_split_frac=(0.2, 0.1), m
         test_len = int(np.floor(random_split_frac[0] * len(dataset)))
         valid_len = int(np.floor(random_split_frac[1] * len(dataset)))
         train_len = len(dataset) - (test_len + valid_len)
-        return random_split(dataset, [train_len, valid_len, test_len],
-                            generator=torch.Generator().manual_seed(manual_seed))
+        return random_split(dataset, [train_len, valid_len, test_len], generator=torch.Generator().manual_seed(manual_seed))
 
 
 def mutate(seq, pos, id):
@@ -85,13 +84,19 @@ def pad(seq, max_len, truncate):
     return seq
 
 
-def tokenize_and_pad(seqs, vocab, max_len, truncate): #seq_dict used to be a parameter
+def tokenize_and_pad(model_type, seqs, vocab, max_len, truncate): #seq_dict used to be a parameter
     padded_aas = []
     for seq in seqs:
-        list_aa_indices = [vocab[char] for char in seq]
-        padded_aa_indices = pad(list_aa_indices, max_len, truncate)
+        list_aa_indices = [len(vocab)+1] + [vocab[char] for char in seq] #len(vocab)+1 is the starting token
+        if model_type == 'bilstm':
+            list_aa_indices.insert(0, len(vocab)+2)
+            X_pre = [pad(list_aa_indices[:i], max_len, truncate) for i in range(len(list_aa_indices))]
+            X_post = [pad(list_aa_indices[i:], max_len, truncate) for i in range(len(list_aa_indices))]
+            padded_aas.append([X_pre, X_post])
+        else:
+            padded_aa_indices = pad(list_aa_indices, max_len, truncate)
         # seq_dict[seq]["tokens"] = padded_aa_indices
-        padded_aas.append(padded_aa_indices)
+            padded_aas.append(padded_aa_indices)
     return padded_aas
 
 
@@ -120,13 +125,14 @@ def save_model(arg):
     return fname
 
 
-def download_from_gcloud_bucket(fname, extension):
+def download_from_gcloud_bucket(fname):
     storage_client = storage.Client()
     public_bucket = storage_client.bucket('amr-transformer')
-    blob = public_bucket.blob('{0}.{1}'.format(fname, extension))
-    blob.download_to_filename('{0}.{1}'.format(fname, extension))
-    fname = "./{0}.{1}".format(fname, extension)
+    blob = public_bucket.blob(fname)
+    blob.download_to_filename(fname)
+    fname = "./{0}".format(fname)
     return fname
+
 
 if __name__ == '__main__':
     hi = generate_mutations('../escape_validation/anchor_seqs.fasta', '../escape_validation/regions_of_interest.json')

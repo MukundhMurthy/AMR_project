@@ -11,7 +11,6 @@ import ipdb
 class CSCS_objective:
     def __init__(self, args, dataset, model=None, cscs_debug=False):
         torch.autograd.set_grad_enabled = False
-        ipdb.set_trace()
         if model is None:
             model = load_empty_model(args, dataset)
         else:
@@ -21,13 +20,15 @@ class CSCS_objective:
             self.positions_file = args.POI_file
             self.wt_seqs_file = args.wt_seqs_file
         else:
-            self.positions_file = download_from_gcloud_bucket(args.POI_file, 'json')
-            self.wt_seqs_file = download_from_gcloud_bucket(args.wt_seqs_file, 'fasta')
+            self.positions_file = download_from_gcloud_bucket(args.POI_file)
+            self.wt_seqs_file = download_from_gcloud_bucket(args.wt_seqs_file)
         self.wt_seqs = read_fasta(self.wt_seqs_file)
         self.mut_seq_dict = generate_mutations(self.wt_seqs_file, self.positions_file)
         self.seq_dict = dataset.seq_dict
         self.dataset = dataset
         self.cscs_debug=cscs_debug
+        self.model_type = args.model_type
+        self.eval_batch_size = args.eval_batch_size
         if args.wandb:
             wandb.save(self.positions_file)
             wandb.save(self.wt_seqs_file)
@@ -39,15 +40,26 @@ class CSCS_objective:
         with torch.no_grad():
             tokenization_params = [self.dataset.vocab, self.dataset.max_len, self.dataset.truncate]
             for wt_seq in self.wt_seqs:
-                wt_seq_tokens = tokenize_and_pad([wt_seq], *tokenization_params)
+                wt_seq_tokens = tokenize_and_pad(self.model_type, [wt_seq], *tokenization_params)
                 tokenized_wt_tensor = torch.Tensor(wt_seq_tokens[0])
                 wt_embedding = self.model(tokenized_wt_tensor.unsqueeze(0).long())
                 list_muts = list(self.mut_seq_dict[str(wt_seq.seq)].keys())
                 if self.cscs_debug:
                     list_muts = list_muts[:5]
-                tokens = tokenize_and_pad(list_muts, *tokenization_params)
+                tokens = tokenize_and_pad(self.model_type, list_muts, *tokenization_params)
                 tokenized_tensor = torch.Tensor(tokens)
-                mut_embeddings = self.model(tokenized_tensor.long())
+                ipdb.set_trace()
+                if self.eval_batch_size is not None:
+                    list_embeddings = []
+                    for i in range((len(list_muts)//int(self.eval_batch_size)+1)):
+                        start = i * int(self.eval_batch_size)
+                        end = start + int(self.eval_batch_size)
+                        subset_muts = tokenized_tensor[start:end, :]
+                        subset_embeddings = self.model(subset_muts.long())
+                        list_embeddings.append(subset_embeddings)
+                    mut_embeddings = torch.cat(list_embeddings, dim=0)
+                else:
+                    mut_embeddings = self.model(tokenized_tensor.long())
                 l1_norm = abs(torch.sum(wt_embedding-mut_embeddings, dim=[1, 2])).tolist()
                 for mut, mut_embedding, l1_difference in zip(list_muts, mut_embeddings.tolist(), l1_norm):
                     self.mut_seq_dict[str(wt_seq.seq)][mut]['l1_semantic_diff'] = l1_difference
@@ -67,7 +79,12 @@ class CSCS_objective:
                 softmax_embedding = F.softmax(embedding, dim=1)
                 grammaticality = softmax_embedding[int(pos)-2, list(self.dataset.vocab.keys()).index(aa)]
                 self.mut_seq_dict[str(wt_seq.seq)][mut]['grammaticality'] = grammaticality
+            # state_dict = torch.load("net.pth")
+            # self.mut_seq_dict = state_dict["mut_seq_dict"]  # Retrieving your stuff after loading
         return self.mut_seq_dict
+
+    def compute_grammar_bilstm(self):
+        raise NotImplementedError
 
     @staticmethod
     def get_aa_sequence(seq):
@@ -91,6 +108,7 @@ def load_empty_model(arg, dataset):
     model = empty_model
     model.eval()
     return model
+
 
 
 # if __name__ == "__main__":

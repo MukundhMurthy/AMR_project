@@ -22,12 +22,14 @@ def train_parser():
     parser.add_argument("--hidden", type=int, default=16, help="# of hidden layers for transformer block")
     parser.add_argument("--embed_dim", type=int, default=16, help="embedding dimension for transformer")
     parser.add_argument("--min_len", type=int, default=1200, help="minimum length (e.g. to avoid fragments)")
+    parser.add_argument("--max_len", type=int, default=1200, help="maximum length")
+    parser.add_argument("--truncate", action="store_true", help="truncate or not")
     parser.add_argument("--heads", type=int, default=2, help="# of heads for transformer")
     parser.add_argument("--depth", type=int, default=1, help='# of transformer block repeats')
     parser.add_argument("--drop_prob", type=float, default=0.1, help='Dropout for transformer blocks')
     parser.add_argument("--learning_rate", type=float, default=1e-3, help='learning rate')
     parser.add_argument("--epochs", type=int, default=3, help="number of training epochs")
-    parser.add_argument("--model_type", choices=['attention'], default='attention', help="model to pretrain")
+    parser.add_argument("--model_type", choices=['attention', 'bilstm'], default='attention', help="model to pretrain")
     parser.add_argument("--lr_scheduler", choices=['plateau', 'adaptive'], default='plateau')
     parser.add_argument("--within_epoch_interval", type=int, default=5, help="show update ever # of bactches")
     parser.add_argument("--patience", type=int, default=1, help="num epochs for lr scheduler to wait before decreasing")
@@ -48,7 +50,7 @@ def cscs_parser(train_parser):
     parser.add_argument('--POI_file', help='positions of interest file')
     parser.add_argument('--wt_seqs_file', help='wildtype sequences for baseline embeddings and probability prior')
     parser.add_argument('--eval_batch_size', help='batch_size for model evaluation')
-    parser.add_argument('--cscs_debug', type=bool, default=False, help='debug_mode')
+    parser.add_argument('--cscs_debug', action="store_true", help='debug_mode')
     # parser.add_argument('--vocab_file', help="vocab file for interconversion between indices and aa\'s")
     return parser
 
@@ -62,7 +64,6 @@ if __name__ == '__main__':
     parser = train_parser()
     cscs_parser = cscs_parser(parser)
     args = cscs_parser.parse_args()
-
     if args.wandb:
         wandb_configured = wandb.login(key="f21ac4792d9b90f6ddae4a3964556d2686fbfe91")
         print("Log in to wandb successful: {0}".format(wandb_configured))
@@ -72,12 +73,11 @@ if __name__ == '__main__':
         wandb.config.update(args)
     else:
         os.environ['WANDB_MODE'] = 'dryrun'
-    dataset = UniProt_Data(filename="uniprot_gpb_rpob", min_len=args.min_len, max_len=None, truncate=True, test=args.cscs_debug, job_dir=args.job_dir)
+    dataset = UniProt_Data(filename="uniprot_gpb_rpob", min_len=args.min_len, max_len=args.max_len, truncate=args.truncate, test=args.cscs_debug, job_dir=args.job_dir)
     if args.wandb:
         wandb.save("vocab.json")
 
     state_dict_fname, model = train(args, dataset)
-    ipdb.set_trace()
     cscs_computer = CSCS_objective(args, dataset, model=model, cscs_debug=args.cscs_debug)
     cscs_computer = cscs_computer.compute_semantics()
     mut_seq_dict = cscs_computer.compute_grammar()
@@ -85,6 +85,9 @@ if __name__ == '__main__':
     datetime_ = datetime.datetime.now().strftime('cscs_%Y%m%d_%H%M%S')
     state_dict = torch.load(state_dict_fname)
     state_dict.update(mut_seq_dict)
+
+    # state_dict = torch.load(state_dict_fname)
+    # mut_seq_dict = state_dict["mut_seq_dict"]  # Retrieving your stuff after loading
     torch.save(state_dict, state_dict_fname)
     # json.dump(
     #     mut_seq_dict,
@@ -92,7 +95,7 @@ if __name__ == '__main__':
 
     if args.wandb:
         wandb.save(state_dict_fname)
-
+    print('done')
 
 
 

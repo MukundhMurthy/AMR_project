@@ -1,0 +1,21 @@
+,rpoB_mutation,comp_mutation,mic,Dt(min),n_isolates,sel_lb,sel_lb_rifampin,std
+0,wild-type,wild-type,12,19.45,—,−,−,0.82
+1,rpoB S531L,wild-type,3000,26.84,—,−,−,1.13
+2,rpoB S531L,rpoA A189E,3000,23.46,1,−,+,0.29
+3,rpoB S531L,rpoA T196S,3000,22.64,1,+,−,0.70
+4,rpoB S531L,rpoB N339H,3000,23.37,1,−,+,0.41
+5,rpoB S531L,rpoB D340Y,3000,23.23,2,−,+,0.88
+6,rpoB S531L,rpoB E546K,3000,20.30,1,+,−,0.91
+7,rpoB S531L,rpoB G809A,3000,24.10,1,+,−,0.62
+8,rpoB S531L,rpoB Q1264R,3000,22.11,1,−,+,0.62
+9,rpoB S531L,rpoC H419P,3000,22.16,1,+,−,0.72
+10,rpoB S531L,rpoC A446V,3000,21.75,1,−,+,0.32
+11,rpoB S531L,rpoC D622E,3000,22.41,1,−,+,1.16
+12,rpoB S531L,rpoC R634P,3000,24.04,1,−,+,0.79
+13,rpoB S531L,rpoC T674I,3000,22.58,1,−,+,0.50
+14,rpoB S531L,rpoC I937T,3000,21.95,1,−,+,0.86
+15,rpoB S531L,rpoC S942L,3000,21.08,1,+,−,0.77
+16,rpoB S531L,rpoC R943H,3000,20.69,1,−,+,0.40
+17,rpoB S531L,rpoC R1075C,3000,23.64,1,+,−,1.04
+18,rpoB S531L,rpoC R1075L,3000,22.53,1,−,+,0.73
+19,rpoB S531L,rpoC G1136A,3000,23.04,1,−,+,1.14
