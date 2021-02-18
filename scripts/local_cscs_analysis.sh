@@ -24,5 +24,5 @@ python3 -m trainer.main \
     --max_len 1500 \
     --min_len 1300 \
     --cscs_debug \
+    --wandb
 #    --truncate \
-#    --wandb

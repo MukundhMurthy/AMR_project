@@ -1,6 +1,6 @@
 import torch
 import logging
-from .models import Transformer
+from .lm_models import Transformer
 from .utils import train_val_test_split, save_model
 import numpy as np
 import torch.nn as nn
@@ -46,7 +46,7 @@ def train(arg, dataset):
 
     if torch.cuda.device_count() > 1:
         logging.info("The total number of GPUs is {0}".format(torch.cuda.device_count()))
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[0, 1, 2, 3, 4, 5, 6, 7])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[0, 1, 2, 3])
 
     opt = torch.optim.Adam(lr=arg.learning_rate, params=model.parameters())
     if arg.lr_scheduler is not None:

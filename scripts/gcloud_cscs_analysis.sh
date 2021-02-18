@@ -9,7 +9,7 @@ gcloud ai-platform jobs submit training $JOB_NAME \
     --job-dir=$JOB_DIR  \
     --master-image-uri ${IMAGE_URI} \
     --scale-tier custom \
-    --master-machine-type complex_model_l_gpu \
+    --master-machine-type complex_model_m_gpu \
     --package-path=$PACKAGE_PATH \
     --module-name=$MODULE_NAME \
     --region=$REGION \
@@ -26,7 +26,7 @@ gcloud ai-platform jobs submit training $JOB_NAME \
     --lr_scheduler plateau \
     --within_epoch_interval 5 \
     --patience 2 \
-    --name_run second_trial \
+    --name_run third_trial \
     --split_method random \
     --manual_seed 42 \
     --num_workers 1 \

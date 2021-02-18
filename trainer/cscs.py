@@ -1,6 +1,6 @@
 # todo define semantics and grammaticality pipeline
 import torch
-from .models import Transformer
+from .lm_models import Transformer
 from .utils import generate_mutations, aa_sequence, read_fasta, tokenize_and_pad, download_from_gcloud_bucket
 from collections import OrderedDict
 import torch.nn.functional as F
@@ -48,7 +48,6 @@ class CSCS_objective:
                     list_muts = list_muts[:5]
                 tokens = tokenize_and_pad(self.model_type, list_muts, *tokenization_params)
                 tokenized_tensor = torch.Tensor(tokens)
-                ipdb.set_trace()
                 if self.eval_batch_size is not None:
                     list_embeddings = []
                     for i in range((len(list_muts)//int(self.eval_batch_size)+1)):
@@ -77,7 +76,7 @@ class CSCS_objective:
                 pos = mutation_name[1:-1]
                 aa = mutation_name[-1]
                 softmax_embedding = F.softmax(embedding, dim=1)
-                grammaticality = softmax_embedding[int(pos)-2, list(self.dataset.vocab.keys()).index(aa)]
+                grammaticality = softmax_embedding[int(pos)-1, list(self.dataset.vocab.keys()).index(aa)]
                 self.mut_seq_dict[str(wt_seq.seq)][mut]['grammaticality'] = grammaticality
             # state_dict = torch.load("net.pth")
             # self.mut_seq_dict = state_dict["mut_seq_dict"]  # Retrieving your stuff after loading

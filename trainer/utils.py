@@ -7,6 +7,8 @@ import json
 import ipdb
 import datetime
 from google.cloud import storage
+from collections import OrderedDict
+import math
 
 
 def mask_fn(x, mask_diagonal=False):
@@ -134,6 +136,74 @@ def download_from_gcloud_bucket(fname):
     return fname
 
 
+def mut_abbrev_to_seq(abbrev, wt):
+    pos = abbrev[1:-1]
+    aa = abbrev[-1]
+    wt[pos] = aa
+    return wt
+
+
+def generate_vocab(forbidden_aa):
+    amino_acids = [
+        'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H',
+        'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W',
+        'Y', 'V', 'Z', 'J', 'U', 'B',
+    ]
+    for aa in forbidden_aa:
+        amino_acids.remove(aa)
+    vocab = OrderedDict({aa: idx + 1 for idx, aa in enumerate(amino_acids)})
+    return vocab
+
+
+def calc_bedroc(scores, alpha):
+    #scores must be ranked
+    #Implementation copied from rdkit. We avoided installing rdkit as it would have to be the only conda installation.
+    num_seq = len(scores)
+    denom = 1.0 / num_seq * ((1 - math.exp(-alpha)) / (math.exp(alpha / num_seq) - 1))
+
+    num_escape = 0
+    sum_exp = 0
+
+    for i in range(num_seq):
+        escape = scores[i] == 1
+        if escape:
+            num_escape += 1
+            sum_exp += math.exp(-(alpha * (i + 1)) / num_seq)
+
+    assert num_escape > 0
+    rie = sum_exp/(num_escape * denom)
+
+    ratio = 1.0 * num_escape / num_seq
+    rie_max = (1 - math.exp(-alpha * ratio)) / (ratio * (1 - math.exp(-alpha)))
+    rie_min = (1 - math.exp(alpha * ratio)) / (ratio * (1 - math.exp(alpha)))
+
+    if rie_max != rie_min:
+        bedroc = (rie - rie_min) / (rie_max - rie_min)
+    else:
+        bedroc = 1.0
+
+    return bedroc
+
+
+
+
+
+
 if __name__ == '__main__':
     hi = generate_mutations('../escape_validation/anchor_seqs.fasta', '../escape_validation/regions_of_interest.json')
-    ipdb.set_trace()
+    ipdb.set_trace(
+    )
+
+    # avail_mut_types = ['primary', 'compensatory']
+    # avail_comp_eval_type = ['single, combinatoric']
+    # avail_genes = ['rpoB']
+    # avail_types = [avail_mut_types, avail_comp_eval_type, avail_genes]
+    # params = [mutation_types, compensatory_evaluation_types, gene]
+    # for param, avail_type in zip(params, avail_types):
+    #     if len(param) == 1:
+    #         if param not in avail_type:
+    #             print("{0} not in {1}".format(param, avail_type))
+    #     else:
+    #         for single_param in param:
+    #             if single_param not in avail_type:
+    #                 print("{0} not in {1}".format(single_param, avail_type))
