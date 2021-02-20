@@ -46,13 +46,15 @@ class Preprocesser:
             self.max_len = max([len(seq) for seq in self.seqs])
         additional_tokens = 1 if self.model_type == 'attention' else 2
         self.max_len += additional_tokens
-        self.min_len += additional_tokens
+        if self.min_len is not None:
+            self.min_len += additional_tokens
 
         amino_acids = [
             'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H',
             'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W',
             'Y', 'V', 'X', 'Z', 'J', 'U', 'B',
         ]
+
         for aa in self.forbidden_aas:
             amino_acids.remove(aa)
         self.vocab = OrderedDict({aa: idx + 1 for idx, aa in enumerate(amino_acids)})
@@ -78,7 +80,7 @@ class Preprocesser:
             if self.min_len is None:
                 cond4 = False
             else:
-                cond4  = len(record.seq) < self.min_len
+                cond4 = len(record.seq) < self.min_len
             if cond1 or cond2 or cond3 or cond4:
                 continue
             meta_info['seq_len'] = len(record.seq)

@@ -103,21 +103,27 @@ def load_empty_model(arg, dataset):
             new_checkpoint[name] = v
     else:
         new_checkpoint = checkpoint
-    empty_model.load_state_dict(new_checkpoint)
+    empty_model.load_state_dict(new_checkpoint, strict=False)
     model = empty_model
     model.eval()
     return model
 
 
 
-# if __name__ == "__main__":
-#     from .main import cscs_parser
-#     parser = train_parser()
-#     cscs_parser = cscs_parser(parser)
-#     cscs_args = cscs_parser.parse_args()
-#
-#     dataset = UniProt_Data(filename="uniprot_gpb_rpob", max_len=1600, truncate=True, test=True,
-#                            job_dir=cscs_args.job_dir)
+if __name__ == "__main__":
+    from .main import cscs_parser
+    from .main import train_parser
+    from .preprocess import UniProt_Data
+    print('goo')
+    parser = train_parser()
+    cscs_parser = cscs_parser(parser)
+    cscs_args = cscs_parser.parse_args()
+
+    dataset = UniProt_Data(filename="escape_validation/anchor_seqs", max_len=cscs_args.max_len, truncate=cscs_args.truncate,
+                           test=cscs_args.cscs_debug,
+                           job_dir=cscs_args.job_dir)
+    model = load_empty_model(cscs_args, dataset)
+    ipdb.set_trace()
 #     cscs_computer = CSCS_objective(cscs_args, dataset, cscs_debug=True)
 #     seq_dict = cscs_computer.compute_semantics()
 #     seq_dict = cscs_computer.compute_grammar()

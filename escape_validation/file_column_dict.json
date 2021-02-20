@@ -1,0 +1,22 @@
+{
+  "rifr_comp_brandis.csv": {
+    "mutation_column_name": "mutation",
+    "eval_column_names": ["Dt(min)_ori","Dt(min)_recon"]
+  },
+  "rifr_comp_brandis_hughes.csv": {
+    "mutation_column_name": "comp_mutation",
+    "eval_column_names": ["Dt(min)"]
+  },
+  "rifr_primary_brandis.csv": {
+    "mutation_column_name": "rpoB_mutation",
+    "eval_column_names": ["Dt(min)"]
+  },
+  "rifr_primary_brandis_pietsch.csv": {
+    "mutation_column_name": "rpoB_mutation",
+    "eval_column_names": ["rel_fit_cost", "comp_fit_cost", "prop_comp_mutations"]
+  },
+  "rifr_primary_brandis_pietsch_2.csv": {
+    "mutation_column_name": "rpoB_mutation",
+    "eval_column_names": ["lb_rifampin","lb_rifampin_100"]
+  }
+}

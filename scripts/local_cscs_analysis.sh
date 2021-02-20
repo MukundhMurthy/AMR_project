@@ -21,8 +21,8 @@ python3 -m trainer.main \
     --wt_seqs_file "escape_validation/anchor_seqs.fasta" \
     --POI_file "escape_validation/regions_of_interest.json" \
     --eval_batch_size 2 \
-    --max_len 1500 \
+    --max_len 1425 \
     --min_len 1300 \
-    --cscs_debug \
-    --wandb
+#    --cscs_debug \
+#    --wandb
 #    --truncate \

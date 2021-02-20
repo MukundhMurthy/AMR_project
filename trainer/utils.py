@@ -31,7 +31,7 @@ def train_val_test_split(dataset, mode='random', random_split_frac=(0.2, 0.1), m
 
 
 def mutate(seq, pos, id):
-    seq[pos] = id
+    seq[pos-1] = id
     return "".join(seq)
 
 
@@ -61,9 +61,9 @@ def generate_mutations(wt_seq_fname, positions_fname) -> Dict:
                 for aa in aa_mutable_vocab:
                     mutated_seq = mutate(list(wt_seq), position, aa)
                     mutated_seqs_dict[wt_seq][mutated_seq] = {'cluster': pos_range_label,
-                                                              'mut_abbrev': "{0}{1}{2}".format(wt_seq[position],
+                                                              'mut_abbrev': "{0}{1}{2}".format(wt_seq[position-1],
                                                                                                position,
-                                                                                               mutated_seq[position])}
+                                                                                               mutated_seq[position-1])}
     return mutated_seqs_dict
 
 
@@ -137,9 +137,11 @@ def download_from_gcloud_bucket(fname):
 
 
 def mut_abbrev_to_seq(abbrev, wt):
-    pos = abbrev[1:-1]
+    wt = list(wt)
+    pos = int(abbrev[1:-1])
     aa = abbrev[-1]
-    wt[pos] = aa
+    wt[pos-1] = aa
+    wt = "".join(wt)
     return wt
 
 
@@ -147,7 +149,7 @@ def generate_vocab(forbidden_aa):
     amino_acids = [
         'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H',
         'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W',
-        'Y', 'V', 'Z', 'J', 'U', 'B',
+        'Y', 'V', 'X', 'Z', 'J', 'U', 'B',
     ]
     for aa in forbidden_aa:
         amino_acids.remove(aa)
