@@ -11,13 +11,18 @@ from matplotlib import pyplot as plt
 import numpy as np
 import ipdb
 import json
+import os
+import wandb
+
 
 # genes must be in order A, B, C
 class Metrics:
-    def __init__(self, embeddings_file, wt_seq_file, file_column_dict, beta=1, gene='rpoB', alpha=20):
+    def __init__(self, embeddings_file, wt_seq_file, file_column_dict, beta=1, gene='rpoB', alpha=20,
+                 results_fname="results", wandb=False, model_type='attention', recalc_L1_diff=False):
         # ipdb.set_trace()
         self.vocab = generate_vocab(forbidden_aa='X')
         self.gene = gene
+        self.recalc_L1_diff = recalc_L1_diff
         self.results_dict = {
             'rpoA': {
               'primary': {}
@@ -36,6 +41,7 @@ class Metrics:
 
         self.wt_seq_file = wt_seq_file
         self.wt_seqs = read_fasta(self.wt_seq_file)
+        self.model_type = model_type
         anchor_ids_dict = {
             'rpoB': 'tr|A0A0F6B9Y4|A0A0F6B9Y4_SALT1'
         }
@@ -63,6 +69,8 @@ class Metrics:
                                                                               self.file_column_dictionary)
         self.comp_fnames = [k for k, v in self.df_dict.items() if 'comp' in k]
         self.alpha = 20
+        self.results_fname = "{0}_{1}.json".format(results_fname, model_type)
+        self.wandb=wandb
 
     def load_rpoa(self):
         raise NotImplementedError
@@ -75,7 +83,8 @@ class Metrics:
         grammar = softmax_embedding[int(pos) - 1, list(self.vocab.keys()).index(aa) + 1]
         return grammar
 
-    def fname2cscs(self, fname, df_dict, gene_mut_seq_dict, wt, baseline_diff=False, combinatoric=False, ori_wt=None, primary_mut=None):
+    def fname2cscs(self, fname, df_dict, gene_mut_seq_dict, wt, baseline_diff=False, combinatoric=False, ori_wt=None,
+                   primary_mut=None, recalc_l1_diff=False):
         mut_column = self.file_column_dictionary[fname]['mutation_column_name']
         mut_list = df_dict[fname]['df'][mut_column].tolist()
         # mut_list = [mut for mut in mut_list if mut not in self.removed_muts]
@@ -86,14 +95,21 @@ class Metrics:
                 grammar = self.embedding2grammar(gene_mut_seq_dict, mut_seq, mut)
                 grammar_list.append(grammar)
                 if not baseline_diff:
-                    semantics = gene_mut_seq_dict[mut_seq]['l1_semantic_diff']
+                    if recalc_l1_diff:
+                        mut_embedding = torch.Tensor(gene_mut_seq_dict[mut_seq]['embedding'])
+                        wt_embedding = torch.Tensor(gene_mut_seq_dict[wt]['embedding'])
+                        semantics = torch.sqrt(torch.sum(torch.square(wt_embedding - mut_embedding), dim=[0, 1])).tolist()
+                        # semantics = abs(torch.sum(wt_embedding - mut_embedding, dim=[0, 1])).tolist()
+                        # semantics = torch.sum(abs(wt_embedding - mut_embedding), dim=[0, 1]).tolist()
+                        gene_mut_seq_dict[mut_seq]['l1_semantic_diff'] = semantics
+                    else:
+                        semantics = gene_mut_seq_dict[mut_seq]['l1_semantic_diff']
                 else:
                     # semantics = abs(gene_mut_seq_dict[mut_seq]['l1_semantic_diff'] - \
                     #             gene_mut_seq_dict[wt]['l1_semantic_diff'])
-                    ipdb.set_trace()
                     mut_embedding = torch.Tensor(gene_mut_seq_dict[mut_seq]['embedding'])
                     wt_embedding = torch.Tensor(gene_mut_seq_dict[wt]['embedding'])
-                    semantics = abs(torch.sum(wt_embedding - mut_embedding, dim=[0, 1])).tolist()
+                    semantics = torch.sum(abs(wt_embedding - mut_embedding), dim=[0, 1]).tolist()
                 semantics_list.append(semantics)
             else:
                 primary_grammar = self.embedding2grammar(gene_mut_seq_dict, ori_wt, primary_mut)
@@ -118,7 +134,8 @@ class Metrics:
         rpob_mut_seq_dict = self.weight_dict[wt]
 
         for fname in self.primary_fnames:
-            cscs, semantic, grammar, rpob_mut_seq_dict = self.fname2cscs(fname, self.df_dict, rpob_mut_seq_dict, wt)
+            cscs, semantic, grammar, rpob_mut_seq_dict = self.fname2cscs(fname, self.df_dict, rpob_mut_seq_dict, wt,
+                                                                         recalc_l1_diff=self.recalc_L1_diff)
             eval_columns = self.file_column_dictionary[fname]['eval_column_names']
             fname_cscs_results = {eval_column: list(spearmanr(self.df_dict[fname]['df'][eval_column], cscs))
                              for eval_column in eval_columns}
@@ -178,8 +195,8 @@ class Metrics:
         self.weight_dict[wt] = rpob_mut_seq_dict
         torch.save(self.weight_dict, self.embedding_file)
 
-        with open('results/results.json', 'w') as f:
-            json.dump(self.results_dict, f)
+        with open('results/{0}'.format(self.results_fname), 'w') as f:
+            json.dump(self.results_dict, f, indent=4)
         return self.results_dict, rpob_mut_seq_dict
 
     @staticmethod
@@ -227,7 +244,7 @@ class Metrics:
                 semantic_list.append(semantics)
             else:
                 continue
-        ipdb.set_trace()
+
         fig, ax = plt.subplots(2)
         ax[0].hist(grammar_list, bins=20)
         ax[0].set_title('grammaticality distribution')
@@ -268,14 +285,27 @@ class Metrics:
             'grammar APS': grammar_aps
         }
 
-        with open('results/results.json', 'w') as f:
-            json.dump(self.results_dict, f)
+        if self.wandb:
+            wandb.log({
+                '{0} cscs BEDROC'.format(self.model_type): cscs_bedroc,
+                '{0} semantic BEDROC'.format(self.model_type): semantic_bedroc,
+                '{0} grammar BEDROC'.format(self.model_type): grammar_bedroc,
+                '{0} cscs APS'.format(self.model_type): cscs_aps,
+                '{0} semantic APS'.format(self.model_type): semantic_aps,
+                '{0} grammar APS'.format(self.model_type): grammar_aps
+            })
+        if not os.path.isdir('results'):
+            os.mkdir('results')
+        with open('results/{0}'.format(self.results_fname), 'w') as f:
+            json.dump(self.results_dict, f, indent=4)
+        if self.wandb:
+            wandb.save('results/{0}'.format(self.results_fname))
         return cscs_aps, semantic_aps, grammar_aps
 
 
 if __name__ == '__main__':
     ting = Metrics('saved_models/compressed_comb.pth', 'escape_validation/anchor_seqs.fasta',
-                   'escape_validation/file_column_dict.json')
+                   'escape_validation/file_column_dict.json', results_fname='results')
     goo, too = ting.load_rpob()
     j,k, l = ting.escape_metrics(too, 'min_max', 'min_max', 'min_max')
     # hi = torch.load('saved_models/third_trial_47.pth',  map_location=torch.device('cpu'))

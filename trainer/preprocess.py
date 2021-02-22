@@ -17,7 +17,7 @@ class Preprocesser:
             forbidden_aas = ['X']
         # root_dir = __file__.split('/')[:-1]
         # root_dir = '/'.join(root_dir)
-        # ipdb.set_trace()
+
         # if not arg.job_dir:
         if job_dir is None:
             fname = '{0}.fasta'.format(fname)
@@ -76,17 +76,19 @@ class Preprocesser:
             if self.max_len is None:
                 cond3 = False
             else:
-                cond3 = self.truncate == False and len(record.seq) > self.max_len
+                cond3 = self.truncate==False and len(record.seq) > self.max_len
             if self.min_len is None:
                 cond4 = False
             else:
                 cond4 = len(record.seq) < self.min_len
+            print(cond1, cond2, cond3, cond4)
             if cond1 or cond2 or cond3 or cond4:
                 continue
             meta_info['seq_len'] = len(record.seq)
             seqs[record.seq] = {}
             seqs[record.seq]["meta_info"] = meta_info
             # seqs[record.seq].append(meta_info)
+        print('goo')
         if self.condition is not None:
             logging.info("After elimination of sequences with {0} forbidden amino acids and selection of sequences where {1} \
             is equal to {2}, {3} sequences are passed for training").format("".join([aa + ' ,' for aa in \

@@ -2,7 +2,7 @@ import torch.nn as nn
 from trainer.utils import mask_fn
 import torch
 from torch.nn import functional as F
-# from tape import ProteinBertModel, TAPETokenizer
+from tape import ProteinBertModel, TAPETokenizer
 
 
 class SelfAttention(nn.Module):
@@ -82,14 +82,24 @@ class Transformer(nn.Module):
         self.blocks = nn.Sequential(*blocks)
         self.to_prob = nn.Linear(embed_dim, vocab_size + 2)
 
-    def forward(self, x):
+    def forward(self, x, repr_layers=None):
         embedding = self.token_embed(x) + self.pos_embed(x)
         b, t, k = embedding.size()
-        out = self.blocks(embedding)
-        probs = self.to_prob(out)
+        assert max(repr_layers) <= len(self.blocks) - 1
+        repr_layer_results = []
+        for i, block in enumerate(self.blocks):
+            embedding = block(embedding)
+            if i in repr_layers:
+                repr_layer_results.append(embedding)
+
+        if repr_layers is None:
+            out = self.to_prob(embedding)
+        else:
+            out = repr_layer_results
+
         # log_probs = F.log_softmax(probs)
         # return log_probs
-        return probs
+        return out
 
 
 class BiLSTM(nn.Module):
@@ -111,29 +121,29 @@ class BiLSTM(nn.Module):
         return probs_vec
 
 
-# class fb_esm:
-#     def __init__(self):
-#         self.model, alphabet = torch.hub.load("facebookresearch/esm", "esm1b_t33_650M_UR50S")
-#         self.batch_converter = alphabet.get_batch_converter()
-#
-#     def forward(self, data):
-#         with torch.no_grad():
-#             batch_labels, batch_strs, batch_tokens = self.batch_converter(data)
-#             results = self.model(batch_tokens, repr_layers=[33], return_contacts=True)
-#         token_representations = results["representations"][33]
-#         return token_representations
-#
+class fb_esm:
+    def __init__(self):
+        self.model, alphabet = torch.hub.load("facebookresearch/esm", "esm1b_t33_650M_UR50S")
+        self.batch_converter = alphabet.get_batch_converter()
 
-# class Tape_model:
-#     def __init__(self):
-#         self.model = ProteinBertModel.from_pretrained('bert-base')
-#         self.tokenizer = TAPETokenizer(vocab='iupac')
-#
-#     def forward(self, sequence):
-#         token_ids = torch.tensor([self.tokenizer.encode(sequence)])
-#         output = self.model(token_ids)
-#         sequence_output = output[0]
-#         return sequence_output
+    def forward(self, data):
+        with torch.no_grad():
+            batch_labels, batch_strs, batch_tokens = self.batch_converter(data)
+            results = self.model(batch_tokens, repr_layers=[33], return_contacts=True)
+        token_representations = results["representations"][33]
+        return token_representations
+
+
+class Tape_model:
+    def __init__(self):
+        self.model = ProteinBertModel.from_pretrained('bert-base')
+        self.tokenizer = TAPETokenizer(vocab='iupac')
+
+    def forward(self, sequence):
+        token_ids = torch.tensor([self.tokenizer.encode(sequence)])
+        output = self.model(token_ids)
+        sequence_output = output[0]
+        return sequence_output
 
 
 

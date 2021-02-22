@@ -36,7 +36,6 @@ gcloud ai-platform jobs submit training $JOB_NAME \
     --eval_batch_size 16 \
     --max_len 1425 \
     --min_len 1300 \
-    --eval_batch_size 32 \
     --wandb \
 #    --truncate \
 #    --cscs_debug

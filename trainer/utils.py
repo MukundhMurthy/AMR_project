@@ -187,12 +187,8 @@ def calc_bedroc(scores, alpha):
     return bedroc
 
 
-
-
-
-
 if __name__ == '__main__':
-    hi = generate_mutations('../escape_validation/anchor_seqs.fasta', '../escape_validation/regions_of_interest.json')
+    # hi = generate_mutations('../escape_validation/anchor_seqs.fasta', '../escape_validation/regions_of_interest.json')
     ipdb.set_trace(
     )
 
