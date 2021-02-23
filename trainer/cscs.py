@@ -27,7 +27,6 @@ class CSCS_objective:
         # escape_muts = ['S512Y', 'H526D', 'H526Y', 'N518D', 'P564L', 'K503N', 'S531Q', 'S512R', 'Q513E', 'S531Y', 'S509P', 'S574Y', 'R529S', 'S508P', 'I572M', 'R529G', 'S531M', 'H526S', 'S531F', 'I530W', 'I572D', 'S531W', 'Q513L', 'Q148H', 'D516G', 'S509R', 'H526E', 'H526G', 'H526P', 'S574F', 'R529L', 'S531L', 'S512P', 'L533P', 'H526F', 'R529K', 'Q148L', 'Q513N', 'L533H', 'I572S', 'Q513P', 'H526L', 'H526C', 'I572T', 'Q513R', 'D516A', 'D516V', 'D516P', 'Q513K', 'G534D', 'R529C', 'I572F', 'G570C', 'L511P', 'H526T', 'R529Q', 'H526R', 'H526Q', 'S522F', 'D516F', 'I572R', 'Q513F', 'L511Q', 'Q513H', 'S522Y', 'D516Y', 'H526N', 'R529H', 'L511R', 'P564R', 'T525R', 'S531C', 'S512F', 'D516N']
         # escape_seqs = [mut_abbrev_to_seq(mut, str(self.wt_seqs[0].seq)) for mut in escape_muts] + [str(self.wt_seqs[0].seq)]
         # self.mut_seq_dict[str(self.wt_seqs[0].seq)] = {k: v for k, v in self.mut_seq_dict[str(self.wt_seqs[0].seq)].items() if k in escape_seqs}
-        # ipdb.set_trace()
         self.seq_dict = dataset.seq_dict
         self.dataset = dataset
         self.cscs_debug=cscs_debug
@@ -46,14 +45,11 @@ class CSCS_objective:
             for wt_seq in self.wt_seqs:
                 wt_seq_tokens = tokenize_and_pad(self.model_type, [wt_seq], *tokenization_params)
                 tokenized_wt_tensor = torch.Tensor(wt_seq_tokens[0][:-1])
-                ipdb.set_trace()
                 wt_embedding = self.model(tokenized_wt_tensor.unsqueeze(0).long())
                 wt = str(wt_seq.seq)
                 self.mut_seq_dict[wt][wt] = {}
                 self.mut_seq_dict[wt][wt]['embedding'] = wt_embedding
                 list_muts = list(self.mut_seq_dict[wt].keys())
-                ipdb.set_trace()
-                # mut_abbrev = self.mut_seq_dict[wt][list_muts[0]]['mut_abbrev']
                 if self.cscs_debug:
                     list_muts = list_muts[:5]
                 if self.model_type=='attention':
@@ -101,18 +97,23 @@ class CSCS_objective:
     def compute_grammar(self):
         for wt_seq in self.wt_seqs:
             list_muts = list(self.mut_seq_dict[str(wt_seq.seq)].keys())
+            mutation_names = [self.mut_seq_dict[str(wt_seq.seq)][mut]['mut_abbrev'] for mut in list_muts]
+            posit = [mutation_name[1:-1] for mutation_name in mutation_names]
+            list_aa = [mutation[1:-1] for mutation in mutation_names]
             if self.cscs_debug:
                 list_muts = list_muts[:5]
-            for mut in list_muts:
-                embedding = torch.Tensor(self.mut_seq_dict[str(wt_seq.seq)][mut]['embedding'])
-                mutation_name = self.mut_seq_dict[str(wt_seq.seq)][mut]['mut_abbrev']
-                pos = mutation_name[1:-1]
-                aa = mutation_name[-1]
-                softmax_embedding = F.softmax(embedding, dim=1)
-                grammaticality = softmax_embedding[int(pos)-1, list(self.dataset.vocab.keys()).index(aa)]
-                self.mut_seq_dict[str(wt_seq.seq)][mut]['grammaticality'] = grammaticality
-            # state_dict = torch.load("net.pth")
-            # self.mut_seq_dict = state_dict["mut_seq_dict"]  # Retrieving your stuff after loading
+            if self.model_type == 'attention':
+                for mut, pos, aa in zip(list_muts, posit, list_aa):
+                    embedding = torch.Tensor(self.mut_seq_dict[str(wt_seq.seq)][mut]['embedding'])
+                    softmax_embedding = F.softmax(embedding, dim=1)
+                    grammaticality = softmax_embedding[int(pos)-1, list(self.dataset.vocab.keys()).index(aa)]
+                    self.mut_seq_dict[str(wt_seq.seq)][mut]['grammaticality'] = grammaticality
+            elif self.model_type == 'esm':
+                grammar = self.model.forward_grammar(self.eval_batch_size, list_muts, list_aa, posit)
+                for mut, grammar in zip(list_muts, grammar):
+                    self.mut_seq_dict[str(wt_seq.seq)][mut]['grammaticality'] = grammar
+            # elif self.model_type == 'tape':
+
         return self.mut_seq_dict
 
     def compute_grammar_bilstm(self):
@@ -157,7 +158,6 @@ if __name__ == "__main__":
                            job_dir=cscs_args.job_dir)
     cscs_computer = CSCS_objective(cscs_args, dataset, model=None, cscs_debug=cscs_args.cscs_debug)
     cscs_computer = cscs_computer.compute_semantics()
-    ipdb.set_trace()
 #     cscs_computer = CSCS_objective(cscs_args, dataset, cscs_debug=True)
 #     seq_dict = cscs_computer.compute_semantics()
 #     seq_dict = cscs_computer.compute_grammar()

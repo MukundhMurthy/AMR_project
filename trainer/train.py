@@ -4,8 +4,6 @@ from .lm_models import Transformer
 from .utils import train_val_test_split, save_model
 import numpy as np
 import torch.nn as nn
-import ipdb
-import sys
 import wandb
 from torch.utils.data import DataLoader
 

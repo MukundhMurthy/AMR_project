@@ -1,4 +1,4 @@
-from .utils import read_fasta, tokenize_and_pad
+from .utils import read_fasta, tokenize_and_pad, download_from_gcloud_bucket
 from .cscs import load_empty_model
 import torch
 import wandb
@@ -13,15 +13,22 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
     wt_seqs = read_fasta(wt_fname)
 
     if path.exists(embedding_fname):
-        seq_dict = torch.load(embedding_fname, map_location=torch.device('cpu'))
+        seq_dict = torch.load(embedding_fname, map_location=torch.device('cpu') if not torch.cuda.is_available()
+                              else torch.device('cuda'))
     else:
-        seq_dict = {}
+        if args.job_dir is not None:
+            embedding_fname = download_from_gcloud_bucket(embedding_fname)
+        else:
+            seq_dict = {}
 
     model = model if model is not None else load_empty_model(args, dataset)
+    device = "cpu"
+    if torch.cuda.is_available():
+        model.cuda()
+        device = "cuda"
 
     X, obs = [], {}
     obs['seq'] = []
-    ipdb.set_trace()
     for seq, uniprot_fname in zip(wt_seqs, uniprot_fnames):
         uniprot_seqs = read_fasta(uniprot_fname)
         uniprot_seqs = list(set([str(seq.seq) for seq in uniprot_seqs if args.max_len > len(str(seq.seq)) > args.min_len
@@ -32,7 +39,7 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
 
         wt_seq_dict = seq_dict[wt]
         seq_tokens = tokenize_and_pad(args.model_type, uniprot_seqs, dataset.vocab, args.max_len, args.truncate)
-        seq_tokens = torch.Tensor(seq_tokens)
+        seq_tokens = torch.Tensor(seq_tokens).to(device)
         embedding = torch.mean(model(seq_tokens[:, :-1].long(), repr_layers=[args.depth - 1]), dim=-2)
         for i, uniprot_seq in enumerate(uniprot_seqs):
             if uniprot_seq not in wt_seq_dict:
@@ -53,7 +60,7 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
         torch.save(seq_dict, embedding_fname)
         if args.wandb:
             wandb.save(embedding_fname)
-
+    return embedding_fname
         # interpret_clusters(adata)
 
 

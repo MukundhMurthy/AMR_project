@@ -12,8 +12,6 @@ import torch
 from .analyze_emb import analyze_embeddings
 from .lm_models import fb_esm, Tape_model
 from .metrics import Metrics
-import datetime
-import ipdb
 # from Bio.Seq import Seq
 # from torch.nn.functional import one_hot
 # from torch.autograd import Variable
@@ -81,7 +79,7 @@ def cscs_calc(arg, data, eval_model, state_dict_fname, model_type='attention'):
     else:
         torch.save(mut_seq_dict, state_dict_fname)
 
-    metrics = Metrics(state_dict_fname, arg.wt_seqs_file, arg.file_column_dictionary, wandb=arg.wandb,
+    metrics = Metrics(state_dict_fname, arg.wt_seqs_file, arg.file_column_dictionary, job_dir=arg.job_dir, wandb=arg.wandb,
                       recalc_L1_diff=False)
 
     results, mut_seq_dict = metrics.load_rpob()
@@ -103,8 +101,8 @@ if __name__ == '__main__':
 
     dataset = UniProt_Data(filename=args.uniprot_seqs_fname.split('.')[0], min_len=args.min_len, max_len=args.max_len,
                            truncate=args.truncate, test=args.cscs_debug, job_dir=args.job_dir)
-    if args.wandb:
-        wandb.save("vocab.json")
+    # if args.wandb:
+    #     wandb.save("vocab.json")
 
     if args.train:
         if args.wandb:
@@ -119,11 +117,12 @@ if __name__ == '__main__':
         state_dict_fname, model = train(args, dataset)
 
     if args.calc_metrics:
+        state_dict_fname = args.state_dict_fname if state_dict_fname is None else state_dict_fname
         state_dict_fname = cscs_calc(args, dataset, model, state_dict_fname)
 
     if args.analyze_embs:
-        analyze_embeddings(args, dataset, model, args.wt_seqs_file, [args.uniprot_seqs_fname],
-                           embedding_fname=state_dict_fname if state_dict_fname is not None else args.embedding_fname)
+        state_dict_fname = analyze_embeddings(args, dataset, model, args.wt_seqs_file, [args.uniprot_seqs_fname],
+                           embedding_fname=state_dict_fname if state_dict_fname is None else args.state_dict_name)
 
     if args.benchmark:
         assert args.calc_metrics
@@ -131,23 +130,23 @@ if __name__ == '__main__':
         tape_model = Tape_model()
         list_models = ['esm', 'tape']
         cscs_partial = partial(cscs_calc, args, dataset)
-        fb_cscs_aps, fb_semantics_aps, fb_grammar_aps = cscs_partial(fb_model, 'esm_reps.pth')
-        state_dict_fname = cscs_partial(tape_model, 'tape_reps.pth',)
+        fb_state_dict = cscs_partial(fb_model, 'esm_reps.pth', model_type='esm')
+        tape_state_dict = cscs_partial(tape_model, 'tape_reps.pth', model_type='tape')
+        if args.wandb:
+            wandb.save(fb_state_dict)
+            wandb.save(tape_state_dict)
 
-
-
+    if args.wandb:
+        wandb.save(state_dict_fname)
+    print('done with task')
     # datetime_ = datetime.datetime.now().strftime('cscs_%Y%m%d_%H%M%S')
 
     # state_dict = torch.load(state_dict_fname)
     # mut_seq_dict = state_dict["mut_seq_dict"]  # Retrieving your stuff after loading
-    torch.save(state_dict, state_dict_fname)
     # json.dump(
     #     mut_seq_dict,
     #     open("{0}.json".format(datetime_), "w"))
 
-    if args.wandb:
-        wandb.save(state_dict_fname)
-    print('done')
 
 
 

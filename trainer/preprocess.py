@@ -81,7 +81,6 @@ class Preprocesser:
                 cond4 = False
             else:
                 cond4 = len(record.seq) < self.min_len
-            print(cond1, cond2, cond3, cond4)
             if cond1 or cond2 or cond3 or cond4:
                 continue
             meta_info['seq_len'] = len(record.seq)

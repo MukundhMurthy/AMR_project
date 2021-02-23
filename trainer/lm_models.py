@@ -2,6 +2,7 @@ import torch.nn as nn
 from trainer.utils import mask_fn
 import torch
 from torch.nn import functional as F
+import ipdb
 from tape import ProteinBertModel, TAPETokenizer
 
 
@@ -85,12 +86,18 @@ class Transformer(nn.Module):
     def forward(self, x, repr_layers=None):
         embedding = self.token_embed(x) + self.pos_embed(x)
         b, t, k = embedding.size()
-        assert max(repr_layers) <= len(self.blocks) - 1
+
+        if repr_layers is not None:
+            assert max(repr_layers) <= len(self.blocks) - 1
+
         repr_layer_results = []
+
         for i, block in enumerate(self.blocks):
             embedding = block(embedding)
-            if i in repr_layers:
-                repr_layer_results.append(embedding)
+
+            if repr_layers is not None:
+                if i in repr_layers:
+                    repr_layer_results.append(embedding)
 
         if repr_layers is None:
             out = self.to_prob(embedding)
@@ -123,8 +130,10 @@ class BiLSTM(nn.Module):
 
 class fb_esm:
     def __init__(self):
-        self.model, alphabet = torch.hub.load("facebookresearch/esm", "esm1b_t33_650M_UR50S")
-        self.batch_converter = alphabet.get_batch_converter()
+        self.model, self.alphabet = torch.hub.load("facebookresearch/esm", "esm1b_t33_650M_UR50S")
+        self.batch_converter = self.alphabet.get_batch_converter()
+        self.lm_head = self.model.lm_head
+        self.vocab = self.alphabet.get_idx
 
     def forward(self, data):
         with torch.no_grad():
@@ -132,6 +141,23 @@ class fb_esm:
             results = self.model(batch_tokens, repr_layers=[33], return_contacts=True)
         token_representations = results["representations"][33]
         return token_representations
+
+    def forward_grammar(self, eval_batch_size, batch_data, list_aa, posit):
+        grammar_list = []
+        for i in range((len(list_aa) // int(eval_batch_size) + 1)):
+            start = i * int(eval_batch_size)
+            end = start + int(eval_batch_size)
+            subset_muts = batch_data[start: end]
+            subset_input = [('Seq_{0}'.format(i), subset_muts[i]) for i in range(len(subset_muts))]
+            subset_embeddings = self.model.forward(subset_input)
+            probs = self.model.lm_head(subset_embeddings)
+            softmax_probs = F.softmax(probs)
+            idxs = [self.vocab(aa) for aa in list_aa[start:end]]
+            count = torch.arange(eval_batch_size)
+            positions = posit[start:end]
+            grammar = softmax_probs[count, positions, idxs]
+            grammar_list.extend(grammar)
+        return grammar_list
 
 
 class Tape_model:
@@ -145,8 +171,10 @@ class Tape_model:
         sequence_output = output[0]
         return sequence_output
 
+    def forward_grammar(self):
 
 
+        pass
 
 
 
