@@ -36,13 +36,14 @@ gcloud ai-platform jobs submit training $JOB_NAME \
     --POI_file "regions_of_interest.json" \
     --wt_seqs_file "anchor_seqs.fasta" \
     --eval_batch_size 16 \
-    --file_column_dictionary "file_column_dictionary" \
+    --file_column_dictionary "file_column_dict.json" \
     --scaling "min_max" \
     --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
+    --state_dict_fname "fourth_trial_50.pth" \
     --analyze_embs \
-    --train \
     --calc_metrics \
     --wandb
+#    --train \
 #    --cscs_debug \
 #    --benchmark \
 #    --truncate \

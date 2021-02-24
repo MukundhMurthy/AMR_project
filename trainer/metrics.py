@@ -58,17 +58,25 @@ class Metrics:
         self.beta = beta
         if os.path.exists(self.embedding_file):
             self.weight_dict = torch.load(self.embedding_file, map_location=torch.device('cpu') if not torch.cuda.is_available()
-                                          else torch.device("cuda: 0"))
+                                          else torch.device("cuda"))
         else:
             if job_dir:
-                self.weight_dict = download_from_gcloud_bucket(self.embedding_file)
+                weight_dict_fname = download_from_gcloud_bucket(self.embedding_file)
+                self.weight_dict = torch.load(weight_dict_fname, map_location=torch.device('cpu') if not torch.cuda.is_available()
+                                              else torch.device("cuda"))
         ids = [seq.id for seq in self.wt_seqs]
         seqs = [str(seq.seq) for seq in self.wt_seqs]
         id_to_seq = {id: seq for id, seq in zip(ids, seqs)}
         self.gene_wt_dict = {gene: id_to_seq[anchor_ids_dict[gene]] for gene in list(anchor_ids_dict.keys())}
 
-        with open(file_column_dict) as json_file:
-            self.file_column_dictionary = json.load(json_file)
+        if os.path.exists(file_column_dict):
+            with open(file_column_dict) as json_file:
+                self.file_column_dictionary = json.load(json_file)
+        else:
+            if job_dir:
+                file_column_dictionary = download_from_gcloud_bucket(file_column_dict)
+                with open(file_column_dictionary) as json_file:
+                    self.file_column_dictionary = json.load(json_file)
         # dictionary which shows the columns to compute metrics from files
         # format is {{filename: {mutation_column_name: name, eval_column_names: name}}}
         for anchor in list(anchor_ids_dict.keys()):

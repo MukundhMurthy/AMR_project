@@ -7,6 +7,7 @@ import torch
 from google.cloud import storage
 from .utils import tokenize_and_pad, read_fasta, download_from_gcloud_bucket
 from collections import OrderedDict
+from itertools import chain
 import ipdb
 
 
@@ -24,6 +25,7 @@ class Preprocesser:
         else:
             fname = download_from_gcloud_bucket("{0}.fasta".format(fname))
         # else:
+
         self.records = read_fasta(fname)
         # except:
         #     fname = root_dir + '/{0}.fasta'.format(fname)
@@ -37,6 +39,7 @@ class Preprocesser:
         self.min_len = min_len
         self.fname = fname
         self.model_type = model_type
+        self.val = 1 if self.model_type == 'bilistm' else self.val
         self.condition = condition  # tuple (species, value) or (identifier, value)
         self.metas = self.save_meta()
         self.forbidden_aas = list(forbidden_aas)
@@ -44,7 +47,11 @@ class Preprocesser:
         self.seqs = list(self.seq_dict.keys())
         if max_len is None:
             self.max_len = max([len(seq) for seq in self.seqs])
-        additional_tokens = 1 if self.model_type == 'attention' else 2
+        if self.model_type == 'attention':
+            additional_tokens = 1
+        elif self.model_type == 'bilstm':
+            additional_tokens = 2
+
         self.max_len += additional_tokens
         if self.min_len is not None:
             self.min_len += additional_tokens
@@ -124,14 +131,29 @@ class Preprocesser:
         return metas
 
     def X_y_from_seq(self):
+        # ipdb.set_trace()
         tokenized = tokenize_and_pad(self.model_type, self.seqs, self.vocab, self.max_len, self.truncate)
-        tokenized_tensor = torch.Tensor(tokenized)
+        if self.model_type == 'attention':
+            tokenized_tensor = torch.Tensor(tokenized)
         # assert tokenized_tensor.size() == self.num_seqs, self.max_len
-        X = tokenized_tensor[:, :-1]
-        y = tokenized_tensor[:, 1:]
+            X = tokenized_tensor[:, :-1]
+            y = tokenized_tensor[:, 1:]
+            return X, y
+        elif self.model_type == 'bilstm':
+            list_x_pre = list(chain.from_iterable([tokens_list[0] for tokens_list in tokenized]))
+            list_x_post = list(chain.from_iterable([tokens_list[1] for tokens_list in tokenized]))
+            list_y = list(chain.from_iterable([tokens_list[2] for tokens_list in tokenized]))
+
+            x_pre_tensor = torch.Tensor(list_x_pre)
+            x_post_tensor = torch.Tensor(list_x_post)
+            y_tensor = torch.Tensor(list_y)
+
+            return x_pre_tensor, x_post_tensor, y_tensor
+
+
         # print(X.size(), y.size())
         # y = one_hot(tokenized_tensor[:, 1:].to(torch.int64), num_classes=len(self.vocab))
-        return X, y
+
 
 
 class UniProt_Data(Dataset):
@@ -140,9 +162,13 @@ class UniProt_Data(Dataset):
         super().__init__()
         preprocess = Preprocesser(filename, condition, model_type=model_type, min_len=min_len, max_len=max_len, truncate=truncate,
                                   forbidden_aas=forbidden_aas, debug_mode=test, job_dir=job_dir)
+        self.model_type = model_type
         self.seqs = preprocess.seqs
         self.max_len = preprocess.max_len
-        self.X, self.y = preprocess.X_y_from_seq()
+        if self.model_type == 'attention':
+            self.X, self.y = preprocess.X_y_from_seq()
+        else:
+            self.X_pre, self.X_post, self.y = preprocess.X_y_from_seq()
         self.vocab_size = len(list(preprocess.vocab.keys()))
         self.seq_dict = preprocess.seq_dict
         self.vocab = preprocess.vocab
@@ -155,4 +181,7 @@ class UniProt_Data(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        return self.X[idx, :], self.y[idx, :]
+        if self.model_type == 'attention':
+            return self.X[idx, :], self.y[idx, :]
+        elif self.model_type == 'bilstm':
+            return self.X_pre[idx, :], self.X_post[idx, :], self.y[idx, :]

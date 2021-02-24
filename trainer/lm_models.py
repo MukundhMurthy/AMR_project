@@ -112,20 +112,25 @@ class Transformer(nn.Module):
 class BiLSTM(nn.Module):
     def __init__(self, vocab_size, hidden_size, embed_dim, seq_length, num_layers, bidirectional=True, drop_prob=0.1):
         super().__init__()
-        self.token_embed = nn.Embedding(num_embeddings=vocab_size + 1, embedding_dim=embed_dim, padding_idx=0)
-        self.bilstm = nn.LSTM(seq_length, hidden_size, num_layers, bias=True, batch_first=True, dropout=0,
+        self.vocab_size = vocab_size
+        self.token_embed = nn.Embedding(num_embeddings=vocab_size + 2, embedding_dim=embed_dim, padding_idx=0)
+        self.bilstm = nn.LSTM(embed_dim, hidden_size, num_layers, bias=True, batch_first=True, dropout=0,
                               bidirectional=bidirectional)
         num_directions = 2 if bidirectional else 1
-        self.dnn = nn.Linear(hidden_size * bidirectional, vocab_size+2)
+        self.dnn = nn.Linear(2 * hidden_size * num_directions, vocab_size+2)
 
     def forward(self, x_pre, x_post):
+        assert max(x_pre[0].tolist()) == self.vocab_size+1
         x_pre_embedding = self.token_embed(x_pre)
         x_post_embedding = self.token_embed(x_post)
-        lstm_pre = self.bilstm(x_pre_embedding)
-        lstm_post = self.bilistm(x_post_embedding)
+        lstm_pre = self.bilstm(x_pre_embedding)[0]
+        lstm_post = self.bilstm(x_post_embedding)[0]
         concat = torch.cat((lstm_pre, lstm_post), dim=-1)
-        probs_vec = F.softmax(self.dnn(concat)[-1], dim=-1)
+        out = self.dnn(concat)[:, -1, :]
+        probs_vec = F.softmax(out, dim=-1)
         return probs_vec
+        # probs_vec = F.softmax(self.dnn(concat)[-1], dim=-1)
+        # return probs_vec
 
 
 class fb_esm:
@@ -175,6 +180,4 @@ class Tape_model:
 
 
         pass
-
-
 

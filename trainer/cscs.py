@@ -9,7 +9,7 @@ import ipdb
 
 
 class CSCS_objective:
-    def __init__(self, args, dataset, model=None, cscs_debug=False, model_type='attention', state_dict_fname=None):
+    def __init__(self, args, dataset, model=None, cscs_debug=False, model_type='attention'):
         torch.autograd.set_grad_enabled = False
         if model is None:
             model = load_empty_model(args, dataset)
@@ -56,8 +56,7 @@ class CSCS_objective:
                 if self.model_type=='attention':
                     wt_embedding = self.model(tokenized_wt_tensor.unsqueeze(0).long(), repr_layers=[self.depth-1])[0]
                 else:
-                    ipdb.set_trace()
-                    wt_embedding = self.model.forward([('wt_seq', wt)])
+                    wt_embedding = self.model.forward([('wt_seq', "".join(list(wt)[:1023]))])
                 self.mut_seq_dict[wt][wt] = {}
                 self.mut_seq_dict[wt][wt]['embedding'] = wt_embedding
                 self.mut_seq_dict[wt][wt]['mut_abbrev'] = 'M1M'
@@ -142,8 +141,9 @@ def load_empty_model(arg, dataset):
     empty_model = Transformer(dataset.vocab_size, hidden=arg.hidden, embed_dim=arg.embed_dim, heads=arg.heads,
                               depth=arg.depth,
                               seq_length=dataset.max_len, drop_prob=arg.drop_prob, mask=True)
-    checkpoint = torch.load(arg.state_dict_fname, map_location=torch.device('cpu') if not torch.cuda.is_available()
-                            else torch.device("cuda: 0"))
+    state_dict_fname = download_from_gcloud_bucket(arg.state_dict_fname) if arg.job_dir else arg.state_dict_fname
+    checkpoint = torch.load(state_dict_fname, map_location=torch.device('cpu') if not torch.cuda.is_available()
+                            else torch.device("cuda"))
     if not torch.cuda.is_available():
         new_checkpoint = OrderedDict()
         for k, v in checkpoint.items():

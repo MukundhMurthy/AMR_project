@@ -78,11 +78,14 @@ def read_fasta(fname):
     return list(SeqIO.parse(fname, "fasta"))
 
 
-def pad(seq, max_len, truncate):
+def pad(seq, max_len, truncate, pre=False):
     if len(seq) > max_len and truncate == True:
         seq = seq[:max_len]
     elif len(seq) < max_len:
-        seq.extend([0] * (max_len - len(seq)))
+        if not pre:
+            seq.extend([0] * (max_len - len(seq)))
+        else:
+            seq = [0] * (max_len - len(seq)) + seq
     return seq
 
 
@@ -91,10 +94,11 @@ def tokenize_and_pad(model_type, seqs, vocab, max_len, truncate): #seq_dict used
     for seq in seqs:
         list_aa_indices = [len(vocab)+1] + [vocab[char] for char in seq] #len(vocab)+1 is the starting token
         if model_type == 'bilstm':
-            list_aa_indices.insert(0, len(vocab)+2)
-            X_pre = [pad(list_aa_indices[:i], max_len, truncate) for i in range(len(list_aa_indices))]
-            X_post = [pad(list_aa_indices[i:], max_len, truncate) for i in range(len(list_aa_indices))]
-            padded_aas.append([X_pre, X_post])
+            list_aa_indices.append(len(vocab)+2)
+            X_pre = [pad(list_aa_indices[:i-1], max_len, truncate) for i in range(2, len(list_aa_indices))]
+            X_post = [pad(list_aa_indices[i:], max_len, truncate, pre=True) for i in range(2, len(list_aa_indices))]
+            y = [list_aa_indices[i-1] for i in range(2, len(list_aa_indices))]
+            padded_aas.append([X_pre, X_post, y])
         else:
             padded_aa_indices = pad(list_aa_indices, max_len, truncate)
         # seq_dict[seq]["tokens"] = padded_aa_indices
@@ -187,10 +191,7 @@ def calc_bedroc(scores, alpha):
     return bedroc
 
 
-if __name__ == '__main__':
-    # hi = generate_mutations('../escape_validation/anchor_seqs.fasta', '../escape_validation/regions_of_interest.json')
-    ipdb.set_trace(
-    )
+
 
     # avail_mut_types = ['primary', 'compensatory']
     # avail_comp_eval_type = ['single, combinatoric']

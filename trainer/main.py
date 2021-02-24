@@ -12,6 +12,7 @@ import torch
 from .analyze_emb import analyze_embeddings
 from .lm_models import fb_esm, Tape_model
 from .metrics import Metrics
+from .utils import download_from_gcloud_bucket
 # from Bio.Seq import Seq
 # from torch.nn.functional import one_hot
 # from torch.autograd import Variable
@@ -23,8 +24,8 @@ def train_parser():
     parser.add_argument("--batch_size", type=int, default=16, help="batch size for training set")
     parser.add_argument("--hidden", type=int, default=16, help="# of hidden layers for transformer block")
     parser.add_argument("--embed_dim", type=int, default=16, help="embedding dimension for transformer")
-    parser.add_argument("--min_len", type=int, default=1200, help="minimum length (e.g. to avoid fragments)")
-    parser.add_argument("--max_len", type=int, default=1200, help="maximum length")
+    parser.add_argument("--min_len", type=int, default=1300, help="minimum length (e.g. to avoid fragments)")
+    parser.add_argument("--max_len", type=int, default=1425, help="maximum length")
     parser.add_argument("--heads", type=int, default=2, help="# of heads for transformer")
     parser.add_argument("--depth", type=int, default=1, help='# of transformer block repeats')
     parser.add_argument("--drop_prob", type=float, default=0.1, help='Dropout for transformer blocks')
@@ -72,8 +73,12 @@ def cscs_calc(arg, data, eval_model, state_dict_fname, model_type='attention'):
     cscs_computer = cscs_computer.compute_semantics()
     mut_seq_dict = cscs_computer.compute_grammar()
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     if model_type=='attention':
-        state_dict = torch.load(state_dict_fname) if state_dict_fname is not None else torch.load(arg.state_dict_fname)
+        if arg.job_dir and state_dict_fname is not None:
+            state_dict_fname = download_from_gcloud_bucket(state_dict_fname)
+        state_dict = torch.load(state_dict_fname, map_location=device) if state_dict_fname is not None else torch.load(arg.state_dict_fname, map_location=device)
         state_dict.update(mut_seq_dict)
         torch.save(state_dict, state_dict_fname)
     else:
@@ -99,7 +104,7 @@ if __name__ == '__main__':
     model = None
     state_dict_fname = None
 
-    dataset = UniProt_Data(filename=args.uniprot_seqs_fname.split('.')[0], min_len=args.min_len, max_len=args.max_len,
+    dataset = UniProt_Data(filename=args.uniprot_seqs_fname.split('.')[0], model_type=args.model_type, min_len=args.min_len, max_len=args.max_len,
                            truncate=args.truncate, test=args.cscs_debug, job_dir=args.job_dir)
     # if args.wandb:
     #     wandb.save("vocab.json")
@@ -117,7 +122,17 @@ if __name__ == '__main__':
         state_dict_fname, model = train(args, dataset)
 
     if args.calc_metrics:
-        if args.benchmark and not args.train:
+        if not args.train:
+            if args.wandb:
+                wandb_configured = wandb.login(key="f21ac4792d9b90f6ddae4a3964556d2686fbfe91")
+                print("Log in to wandb successful: {0}".format(wandb_configured))
+                os.environ['WANDB_MODE'] = 'run'
+                unique_run_id = uuid.uuid1().hex[0:8]
+                wandb.init(config={"Unique Run ID": unique_run_id}, project='Antimicrobial resistance',
+                           name=args.name_run)
+                wandb.config.update(args)
+            else:
+                os.environ['WANDB_MODE'] = 'dryrun'
             assert args.state_dict_fname
         state_dict_fname = args.state_dict_fname if state_dict_fname is None else state_dict_fname
         state_dict_fname = cscs_calc(args, dataset, model, state_dict_fname)
