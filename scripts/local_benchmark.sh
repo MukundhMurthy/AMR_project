@@ -1,12 +1,12 @@
 cd ..
 python3 -m trainer.main \
-    --batch_size 20 \
-    --hidden 16 \
-    --embed_dim 16 \
+    --batch_size 32 \
+    --hidden 512 \
+    --embed_dim 32 \
     --max_len 1425 \
     --min_len 1300 \
-    --heads 1 \
-    --depth 1 \
+    --heads 4 \
+    --depth 3 \
     --drop_prob 0.1 \
     --learning_rate 0.001 \
     --epochs 1 \
@@ -23,28 +23,11 @@ python3 -m trainer.main \
     --wt_seqs_file "escape_validation/anchor_seqs.fasta" \
     --eval_batch_size 16 \
     --file_column_dictionary "escape_validation/file_column_dict.json" \
-    --state_dict_fname "saved_models/compressed_comb.pth" \
     --scaling "min_max" \
     --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
-    --analyze_embs \
-    --train \
-    --calc_metrics \
-    --cscs_debug \
-
-
-
+    --benchmark \
 #    --state_dict_fname "saved_models/compressed_comb.pth" \
-#    --POI_file "escape_validation/regions_of_interest.json" \
-#    --wt_seqs_file "escape_validation/anchor_seqs.fasta" \
-#
-#    --file_column_dictionary "escape_validation/file_column_dictionary" \
-#
-#    --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
-#    --embedding_fname "saved_models/compressed_comb.pth" \
-
-#    --cscs_debug \
+#    --calc_metrics
+#    --analyze_embs \
 #    --train \
-#    --calc_metrics \
-#    --benchmark \
-#    --truncate \
-#    --wandb
+#    --cscs_debug \

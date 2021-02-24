@@ -117,24 +117,26 @@ if __name__ == '__main__':
         state_dict_fname, model = train(args, dataset)
 
     if args.calc_metrics:
+        if args.benchmark and not args.train:
+            assert args.state_dict_fname
         state_dict_fname = args.state_dict_fname if state_dict_fname is None else state_dict_fname
         state_dict_fname = cscs_calc(args, dataset, model, state_dict_fname)
 
     if args.analyze_embs:
         state_dict_fname = analyze_embeddings(args, dataset, model, args.wt_seqs_file, [args.uniprot_seqs_fname],
-                           embedding_fname=state_dict_fname if state_dict_fname is None else args.state_dict_name)
+                           embedding_fname=state_dict_fname if state_dict_fname is not None else args.state_dict_fname)
 
     if args.benchmark:
-        assert args.calc_metrics
+        # assert args.calc_metrics
         fb_model = fb_esm()
-        tape_model = Tape_model()
-        list_models = ['esm', 'tape']
+        # tape_model = Tape_model()
+        list_models = ['esm']
         cscs_partial = partial(cscs_calc, args, dataset)
         fb_state_dict = cscs_partial(fb_model, 'esm_reps.pth', model_type='esm')
-        tape_state_dict = cscs_partial(tape_model, 'tape_reps.pth', model_type='tape')
+        # tape_state_dict = cscs_partial(tape_model, 'tape_reps.pth', model_type='tape')
         if args.wandb:
             wandb.save(fb_state_dict)
-            wandb.save(tape_state_dict)
+            # wandb.save(tape_state_dict)
 
     if args.wandb:
         wandb.save(state_dict_fname)

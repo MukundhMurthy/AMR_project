@@ -89,6 +89,8 @@ class Metrics:
         softmax_embedding = F.softmax(embedding, dim=1)
         pos = int(mut_name[1:-1])
         aa = mut_name[-1]
+        if softmax_embedding.size()[0] == 1:
+            softmax_embedding = softmax_embedding.squeeze(0)
         grammar = softmax_embedding[int(pos) - 1, list(self.vocab.keys()).index(aa) + 1]
         return grammar
 
@@ -98,7 +100,7 @@ class Metrics:
         mut_list = df_dict[fname]['df'][mut_column].tolist()
         # mut_list = [mut for mut in mut_list if mut not in self.removed_muts]
         semantics_list, grammar_list = [], []
-        for mut in mut_list:
+        for i, mut in enumerate(mut_list):
             mut_seq = mut_abbrev_to_seq(mut, wt)
             if not combinatoric:
                 grammar = self.embedding2grammar(gene_mut_seq_dict, mut_seq, mut)

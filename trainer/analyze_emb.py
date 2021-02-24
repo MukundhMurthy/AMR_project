@@ -12,12 +12,14 @@ from os import path
 def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding_fname=None, namespace='rpoB'):
     wt_seqs = read_fasta(wt_fname)
 
+    device = torch.device('cpu') if not torch.cuda.is_available() else torch.device('cuda')
+
     if path.exists(embedding_fname):
-        seq_dict = torch.load(embedding_fname, map_location=torch.device('cpu') if not torch.cuda.is_available()
-                              else torch.device('cuda'))
+        seq_dict = torch.load(embedding_fname, map_location=device)
     else:
         if args.job_dir is not None:
             embedding_fname = download_from_gcloud_bucket(embedding_fname)
+            seq_dict = torch.load(embedding_fname, map_location=device)
         else:
             seq_dict = {}
 
@@ -40,7 +42,7 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
         wt_seq_dict = seq_dict[wt]
         seq_tokens = tokenize_and_pad(args.model_type, uniprot_seqs, dataset.vocab, args.max_len, args.truncate)
         seq_tokens = torch.Tensor(seq_tokens).to(device)
-        embedding = torch.mean(model(seq_tokens[:, :-1].long(), repr_layers=[args.depth - 1]), dim=-2)
+        embedding = torch.mean(model(seq_tokens[:, :-1].long(), repr_layers=[args.depth - 1]), dim=-2)[0]
         for i, uniprot_seq in enumerate(uniprot_seqs):
             if uniprot_seq not in wt_seq_dict:
                 wt_seq_dict[uniprot_seq] = {}
@@ -59,6 +61,7 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
         plot_umap(adata, namespace)
         torch.save(seq_dict, embedding_fname)
         if args.wandb:
+            wandb.save('{}_louvain.png'.format(namespace))
             wandb.save(embedding_fname)
     return embedding_fname
         # interpret_clusters(adata)

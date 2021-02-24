@@ -9,12 +9,13 @@ import ipdb
 
 
 class CSCS_objective:
-    def __init__(self, args, dataset, model=None, cscs_debug=False, model_type='attention'):
+    def __init__(self, args, dataset, model=None, cscs_debug=False, model_type='attention', state_dict_fname=None):
         torch.autograd.set_grad_enabled = False
         if model is None:
             model = load_empty_model(args, dataset)
         else:
-            model.eval()
+            if model_type=='attention':
+                model.eval()
         self.model = model
         if args.job_dir is None:
             self.positions_file = args.POI_file
@@ -23,6 +24,11 @@ class CSCS_objective:
             self.positions_file = download_from_gcloud_bucket(args.POI_file)
             self.wt_seqs_file = download_from_gcloud_bucket(args.wt_seqs_file)
         self.wt_seqs = read_fasta(self.wt_seqs_file)
+        # if not (args.train and not args.calc_metrics):
+        #     ipdb.set_trace()
+        #     self.mut_seq_dict = generate_mutations(self.wt_seqs_file, self.positions_file) if state_dict_fname is None else torch.load(state_dict_fname, map_location=device)
+        # else:
+        # self.mut_seq_dict = torch.load("saved_models/compressed_comb.pth", map_location=torch.device("cpu"))
         self.mut_seq_dict = generate_mutations(self.wt_seqs_file, self.positions_file)
         # escape_muts = ['S512Y', 'H526D', 'H526Y', 'N518D', 'P564L', 'K503N', 'S531Q', 'S512R', 'Q513E', 'S531Y', 'S509P', 'S574Y', 'R529S', 'S508P', 'I572M', 'R529G', 'S531M', 'H526S', 'S531F', 'I530W', 'I572D', 'S531W', 'Q513L', 'Q148H', 'D516G', 'S509R', 'H526E', 'H526G', 'H526P', 'S574F', 'R529L', 'S531L', 'S512P', 'L533P', 'H526F', 'R529K', 'Q148L', 'Q513N', 'L533H', 'I572S', 'Q513P', 'H526L', 'H526C', 'I572T', 'Q513R', 'D516A', 'D516V', 'D516P', 'Q513K', 'G534D', 'R529C', 'I572F', 'G570C', 'L511P', 'H526T', 'R529Q', 'H526R', 'H526Q', 'S522F', 'D516F', 'I572R', 'Q513F', 'L511Q', 'Q513H', 'S522Y', 'D516Y', 'H526N', 'R529H', 'L511R', 'P564R', 'T525R', 'S531C', 'S512F', 'D516N']
         # escape_seqs = [mut_abbrev_to_seq(mut, str(self.wt_seqs[0].seq)) for mut in escape_muts] + [str(self.wt_seqs[0].seq)]
@@ -32,6 +38,7 @@ class CSCS_objective:
         self.cscs_debug=cscs_debug
         self.model_type = model_type
         self.eval_batch_size = args.eval_batch_size
+        self.depth = args.depth
         if args.wandb:
             wandb.save(self.positions_file)
             wandb.save(self.wt_seqs_file)
@@ -43,12 +50,19 @@ class CSCS_objective:
         with torch.no_grad():
             tokenization_params = [self.dataset.vocab, self.dataset.max_len, self.dataset.truncate]
             for wt_seq in self.wt_seqs:
+                wt = str(wt_seq.seq)
                 wt_seq_tokens = tokenize_and_pad(self.model_type, [wt_seq], *tokenization_params)
                 tokenized_wt_tensor = torch.Tensor(wt_seq_tokens[0][:-1])
-                wt_embedding = self.model(tokenized_wt_tensor.unsqueeze(0).long())
-                wt = str(wt_seq.seq)
+                if self.model_type=='attention':
+                    wt_embedding = self.model(tokenized_wt_tensor.unsqueeze(0).long(), repr_layers=[self.depth-1])[0]
+                else:
+                    ipdb.set_trace()
+                    wt_embedding = self.model.forward([('wt_seq', wt)])
                 self.mut_seq_dict[wt][wt] = {}
                 self.mut_seq_dict[wt][wt]['embedding'] = wt_embedding
+                self.mut_seq_dict[wt][wt]['mut_abbrev'] = 'M1M'
+                self.mut_seq_dict[wt][wt]['cluster'] = 'None'
+
                 list_muts = list(self.mut_seq_dict[wt].keys())
                 if self.cscs_debug:
                     list_muts = list_muts[:5]
@@ -61,11 +75,11 @@ class CSCS_objective:
                             start = i * int(self.eval_batch_size)
                             end = start + int(self.eval_batch_size)
                             subset_muts = tokenized_tensor[start:end, :]
-                            subset_embeddings = self.model(subset_muts.long())
+                            subset_embeddings = self.model(subset_muts.long(), repr_layers=[self.depth-1])[0]
                             list_embeddings.append(subset_embeddings)
                         mut_embeddings = torch.cat(list_embeddings, dim=0)
                     else:
-                        mut_embeddings = self.model(tokenized_tensor.long())
+                        mut_embeddings = self.model(tokenized_tensor.long(), repr_layers=[self.depth-1])[0]
                 elif self.model_type=='tape':
                     list_embeddings = []
                     for mut_seq in list_muts:
@@ -99,7 +113,7 @@ class CSCS_objective:
             list_muts = list(self.mut_seq_dict[str(wt_seq.seq)].keys())
             mutation_names = [self.mut_seq_dict[str(wt_seq.seq)][mut]['mut_abbrev'] for mut in list_muts]
             posit = [mutation_name[1:-1] for mutation_name in mutation_names]
-            list_aa = [mutation[1:-1] for mutation in mutation_names]
+            list_aa = [mutation[-1] for mutation in mutation_names]
             if self.cscs_debug:
                 list_muts = list_muts[:5]
             if self.model_type == 'attention':
