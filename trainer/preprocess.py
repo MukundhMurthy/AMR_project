@@ -10,7 +10,6 @@ from collections import OrderedDict
 from itertools import chain
 import ipdb
 
-
 class Preprocesser:
     def __init__(self, fname, condition, model_type='attention', min_len=None, max_len=None, truncate=False, forbidden_aas=('X'),
                  debug_mode=False, job_dir=None):
@@ -176,7 +175,7 @@ class UniProt_Data(Dataset):
         self.truncate = preprocess.truncate
 
     def __len__(self):
-        return len(self.seqs)
+        return self.y.shape[0]
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -184,4 +183,4 @@ class UniProt_Data(Dataset):
         if self.model_type == 'attention':
             return self.X[idx, :], self.y[idx, :]
         elif self.model_type == 'bilstm':
-            return self.X_pre[idx, :], self.X_post[idx, :], self.y[idx, :]
+            return (self.X_pre[idx, :], self.X_post[idx, :]), self.y[idx, :]

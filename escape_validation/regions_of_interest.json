@@ -1,13 +1,13 @@
 {
   "tr|A0A0F6B9Y4|A0A0F6B9Y4_SALT1":
   {
-    "beginning_N_terminal": [100, 145],
-    "N_terminal_cluster": [146, 148],
-    "N_terminal_cluster_1": [149, 506],
-    "cluster_1": [507, 534],
-    "cluster_1_cluster_2": [535, 562],
-    "cluster_2": [563, 574],
-    "cluster_2_cluster_3": [575, 686],
+    "beginning_N_terminal": [100, 146],
+    "N_terminal_cluster": [146, 149],
+    "N_terminal_cluster_1": [149, 507],
+    "cluster_1": [507, 535],
+    "cluster_1_cluster_2": [535, 563],
+    "cluster_2": [563, 575],
+    "cluster_2_cluster_3": [575, 687],
     "cluster_3": [687],
     "cluster_3_end": [688, 700]
   }

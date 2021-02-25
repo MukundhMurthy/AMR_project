@@ -64,9 +64,12 @@ def train(arg, dataset):
         test_loss_list = []
         for t, (X, y) in enumerate(train_loader):
             model.train()
-            X, y = X.to(device), y.to(device)
-            out = model(X.long()).transpose(1, 2)
-            training_loss = criterion(out, y.long())
+            if arg.model_type == 'attention':
+                X, y = X.to(device), y.to(device)
+                out = model(X.long()).transpose(1, 2)
+                training_loss = criterion(out, y.long())
+            elif arg.model_type == 'bilstm':
+                X,
             opt.zero_grad()
             training_loss.backward()
             opt.step()

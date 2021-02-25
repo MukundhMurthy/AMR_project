@@ -18,7 +18,8 @@ import wandb
 # genes must be in order A, B, C
 class Metrics:
     def __init__(self, embeddings_file, wt_seq_file, file_column_dict, beta=1, gene='rpoB', alpha=20,
-                 results_fname="results", job_dir=False, wandb=False, model_type='attention', recalc_L1_diff=False):
+                 results_fname="results", job_dir=False, wandb=False, model_type='attention', recalc_L1_diff=False,
+                 comb=False):
         # ipdb.set_trace()
         self.vocab = generate_vocab(forbidden_aa='X')
         self.gene = gene
@@ -80,11 +81,11 @@ class Metrics:
         # dictionary which shows the columns to compute metrics from files
         # format is {{filename: {mutation_column_name: name, eval_column_names: name}}}
         for anchor in list(anchor_ids_dict.keys()):
-            self.df_dict = func_dict[anchor]()
+            self.df_dict = func_dict[anchor](job_dir=job_dir)
         self.primary_fnames = [k for k, v in self.df_dict.items() if 'primary' in k]
         self.all_escape_muts = self.gather_all_escape_muts(self.primary_fnames, self.df_dict,
                                                            self.file_column_dictionary)
-        self.comp_fnames = [k for k, v in self.df_dict.items() if 'comp' in k]
+        self.comp_fnames = [k for k, v in self.df_dict.items() if 'comp' in k] if comb else []
         self.alpha = 20
         self.results_fname = "{0}_{1}.json".format(results_fname, model_type)
         self.wandb = wandb
@@ -328,6 +329,7 @@ class Metrics:
 if __name__ == '__main__':
     ting = Metrics('saved_models/compressed_comb.pth', 'escape_validation/anchor_seqs.fasta',
                    'escape_validation/file_column_dict.json', results_fname='results')
+
     goo, too = ting.load_rpob()
     j, k, l = ting.escape_metrics(too, 'min_max', 'min_max', 'min_max')
     # hi = torch.load('saved_models/third_trial_47.pth',  map_location=torch.device('cpu'))

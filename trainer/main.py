@@ -63,6 +63,8 @@ def cscs_parser(train_parser):
     parser.add_argument('--calc_metrics', action="store_true", help='store corrs, aps, and bedroc metrics')
     parser.add_argument('--analyze_embs', action="store_true", help='do knn and UMAP for embeddings')
     parser.add_argument('--benchmark', action="store_true", help='benchmark performance using TAPE and FB ESM models')
+    parser.add_argument('--comb', action="store_true", help='whether or not to assess combinatoric mutations')
+
 
     # parser.add_argument('--vocab_file', help="vocab file for interconversion between indices and aa\'s")
     return parser
@@ -85,7 +87,7 @@ def cscs_calc(arg, data, eval_model, state_dict_fname, model_type='attention'):
         torch.save(mut_seq_dict, state_dict_fname)
 
     metrics = Metrics(state_dict_fname, arg.wt_seqs_file, arg.file_column_dictionary, job_dir=arg.job_dir, wandb=arg.wandb,
-                      recalc_L1_diff=False)
+                      recalc_L1_diff=False, comb=arg.comb)
 
     results, mut_seq_dict = metrics.load_rpob()
     cscs_aps, semantic_aps, grammar_aps = metrics.escape_metrics(mut_seq_dict, 'min_max', 'min_max', 'min_max')
