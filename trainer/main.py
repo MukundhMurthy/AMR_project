@@ -64,27 +64,32 @@ def cscs_parser(train_parser):
     parser.add_argument('--analyze_embs', action="store_true", help='do knn and UMAP for embeddings')
     parser.add_argument('--benchmark', action="store_true", help='benchmark performance using TAPE and FB ESM models')
     parser.add_argument('--comb', action="store_true", help='whether or not to assess combinatoric mutations')
-
+    parser.add_argument('--cscs', action="store_true", help='store embeddings')
+    parser.add_argument('--emb_is_prob_vec', action="store_true")
 
     # parser.add_argument('--vocab_file', help="vocab file for interconversion between indices and aa\'s")
     return parser
 
 
 def cscs_calc(arg, data, eval_model, state_dict_fname, model_type='attention'):
-    cscs_computer = CSCS_objective(arg, data, model=eval_model, cscs_debug=arg.cscs_debug, model_type=model_type)
-    cscs_computer = cscs_computer.compute_semantics()
-    mut_seq_dict = cscs_computer.compute_grammar()
+    if arg.cscs:
+        cscs_computer = CSCS_objective(arg, dataset=data, model=eval_model, cscs_debug=arg.cscs_debug, model_type=model_type)
+        cscs_computer = cscs_computer.compute_semantics()
+        mut_seq_dict = cscs_computer.compute_grammar()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    if model_type=='attention':
-        if arg.job_dir and state_dict_fname is not None:
-            state_dict_fname = download_from_gcloud_bucket(state_dict_fname)
-        state_dict = torch.load(state_dict_fname, map_location=device) if state_dict_fname is not None else torch.load(arg.state_dict_fname, map_location=device)
-        state_dict.update(mut_seq_dict)
-        torch.save(state_dict, state_dict_fname)
-    else:
-        torch.save(mut_seq_dict, state_dict_fname)
+        if model_type=='attention':
+            if arg.job_dir and state_dict_fname is not None:
+                state_dict_fname = download_from_gcloud_bucket(state_dict_fname)
+            state_dict = torch.load(state_dict_fname, map_location=device) if state_dict_fname is not None else torch.load(arg.state_dict_fname, map_location=device)
+            state_dict.update(mut_seq_dict)
+            torch.save(state_dict, state_dict_fname)
+        else:
+            torch.save(mut_seq_dict, state_dict_fname)
+    
+    if arg.wandb:
+        wandb.save(state_dict_fname)
 
     metrics = Metrics(state_dict_fname, arg.wt_seqs_file, arg.file_column_dictionary, job_dir=arg.job_dir, wandb=arg.wandb,
                       recalc_L1_diff=False, comb=arg.comb)
@@ -106,8 +111,11 @@ if __name__ == '__main__':
     model = None
     state_dict_fname = None
 
-    dataset = UniProt_Data(filename=args.uniprot_seqs_fname.split('.')[0], model_type=args.model_type, min_len=args.min_len, max_len=args.max_len,
-                           truncate=args.truncate, test=args.cscs_debug, job_dir=args.job_dir)
+    if not args.benchmark:
+        dataset = UniProt_Data(filename=args.uniprot_seqs_fname.split('.')[0], model_type=args.model_type, min_len=args.min_len, max_len=args.max_len,
+                               truncate=args.truncate, test=args.cscs_debug, job_dir=args.job_dir)
+    else:
+        dataset = None
     # if args.wandb:
     #     wandb.save("vocab.json")
 

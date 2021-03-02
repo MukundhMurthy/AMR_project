@@ -13,7 +13,7 @@ import ipdb
 import json
 import os
 import wandb
-
+from tqdm import tqdm
 
 # genes must be in order A, B, C
 class Metrics:
@@ -109,7 +109,7 @@ class Metrics:
         mut_list = df_dict[fname]['df'][mut_column].tolist()
         # mut_list = [mut for mut in mut_list if mut not in self.removed_muts]
         semantics_list, grammar_list = [], []
-        for i, mut in enumerate(mut_list):
+        for i, mut in tqdm(enumerate(mut_list)):
             mut_seq = mut_abbrev_to_seq(mut, wt)
             if not combinatoric:
                 grammar = self.embedding2grammar(gene_mut_seq_dict, mut_seq, mut)

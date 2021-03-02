@@ -6,18 +6,17 @@ import numpy as np
 import torch.nn as nn
 import wandb
 from torch.utils.data import DataLoader
-
+import os
 
 def train(arg, dataset):
-    print(arg.wandb)
 
     cuda_availability = torch.cuda.is_available()
     if cuda_availability:
-        # os.environ['CUDA_VISIBLE_DEVICES']="0,1,2,3"
-        torch.distributed.init_process_group(
-            backend='nccl',
-            init_method='env://'
-        )
+        os.environ['CUDA_VISIBLE_DEVICES']="0,1,2,3"
+        #torch.distributed.init_process_group(
+        #    backend='nccl',
+        #    init_method='env://'
+        #)
         device = torch.device('cuda:{}'.format(torch.cuda.current_device()))
         logging.info("The default device is {0}".format(device))
     else:
@@ -44,8 +43,8 @@ def train(arg, dataset):
 
     if torch.cuda.device_count() > 1:
         logging.info("The total number of GPUs is {0}".format(torch.cuda.device_count()))
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[0, 1, 2, 3])
-
+        model = torch.nn.parallel.DataParallel(model, device_ids=[0, 1, 2, 3])
+        print('worked')
     opt = torch.optim.Adam(lr=arg.learning_rate, params=model.parameters())
     if arg.lr_scheduler is not None:
         if arg.lr_scheduler == 'lambda_lr':
@@ -67,9 +66,11 @@ def train(arg, dataset):
             if arg.model_type == 'attention':
                 X, y = X.to(device), y.to(device)
                 out = model(X.long()).transpose(1, 2)
-                training_loss = criterion(out, y.long())
             elif arg.model_type == 'bilstm':
-                X,
+                X_pre, X_post = X.to(device)
+                y = y.to(device)
+                out = model(X_pre.long(), X_post.long())
+            training_loss = criterion(out, y.long())
             opt.zero_grad()
             training_loss.backward()
             opt.step()
