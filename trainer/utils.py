@@ -8,6 +8,7 @@ import ipdb
 import datetime
 from google.cloud import storage
 from collections import OrderedDict
+from sklearn.metrics import auc
 import math
 
 
@@ -27,7 +28,26 @@ def train_val_test_split(dataset, mode='random', random_split_frac=(0.2, 0.1), m
         test_len = int(np.floor(random_split_frac[0] * len(dataset)))
         valid_len = int(np.floor(random_split_frac[1] * len(dataset)))
         train_len = len(dataset) - (test_len + valid_len)
+
         return random_split(dataset, [train_len, valid_len, test_len], generator=torch.Generator().manual_seed(manual_seed))
+
+
+def compute_p(true_val, n_interest, n_total, n_permutations=10000):
+    null_distribution = []
+    norm = n_interest * n_total
+    for _ in range(n_permutations):
+        interest = set(np.random.choice(n_total, size=n_interest,
+                                        replace=False))
+        n_acquired = 0
+        acquired, total = [], []
+        for i in range(n_total):
+            if i in interest:
+                n_acquired += 1
+            acquired.append(n_acquired)
+            total.append(i + 1)
+        null_distribution.append(auc(total, acquired) / norm)
+    null_distribution = np.array(null_distribution)
+    return sum(null_distribution >= true_val) / n_permutations
 
 
 def mutate(seq, pos, id):

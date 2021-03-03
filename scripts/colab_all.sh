@@ -1,39 +1,88 @@
+#!/bin/sh
+
+# shellcheck disable=SC2162
+
 cd ..
-python3 -m trainer.main \
-    --batch_size 32 \
-    --hidden 512 \
+
+esm () {
+  python3 -m trainer.main \
     --embed_dim 32 \
-    --max_len 1425 \
-    --min_len 1300 \
-    --heads 4 \
-    --depth 3 \
-    --drop_prob 0.1 \
-    --learning_rate 0.001 \
     --epochs 60 \
-    --model_type bilstm \
-    --lr_scheduler plateau \
-    --within_epoch_interval 5 \
-    --patience 2 \
-    --name_run fourth_trial_save_weights \
-    --split_method random \
-    --manual_seed 42 \
-    --num_workers 1 \
-    --es_patience 4 \
-    --POI_file "escape_validation/regions_of_interest.json" \
-    --wt_seqs_file "escape_validation/anchor_seqs.fasta" \
+    --model_type esm \
+    --name_run $1 \
     --eval_batch_size 4 \
     --file_column_dictionary "escape_validation/file_column_dict.json" \
-    --scaling "min_max" \
     --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
-    --state_dict_fname "saved_models/fourth_trial_esm_embed.pth" \
+    --state_dict_fname "saved_models/fourth_trial_50_embed.pth" \
+    --calc_metrics \
+    --cscs \
+    --wandb
+}
+
+embed_var () {
+  python3 -m trainer.main \
+    --embed_dim $1 \
+    --epochs 60 \
+    --model_type attention \
+    --name_run $2 \
+    --eval_batch_size 4 \
+    --file_column_dictionary "escape_validation/file_column_dict.json" \
+    --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
+    --state_dict_fname "saved_models/fourth_trial_50_embed.pth" \
+    --calc_metrics \
     --train \
-    --cscs_debug \
-#    --benchmark \
-#    --cscs \
-#    --analyze_embs \
-#    --calc_metrics \
-#    --emb_is_prob_vec \
-#    --wandb \
-#    --cscs_debug \
-#    --benchmark \
-#    --truncate \
+    --cscs \
+    --analyze_embs \
+    --wandb \
+}
+
+Lk () {
+    python3 -m trainer.main \
+    --embed_dim 32 \
+    --epochs 60 \
+    --model_type attention \
+    --name_run $2 \
+    --eval_batch_size 4 \
+    --file_column_dictionary "escape_validation/file_column_dict.json" \
+    --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
+    --state_dict_fname "saved_models/fourth_trial_50_embed.pth" \
+    --L_k $1 \
+    --calc_metrics \
+    --train \
+    --benchmark \
+    --cscs \
+    --analyze_embs \
+    --wandb \
+}
+
+bilstm () {
+    python3 -m trainer.main \
+    --embed_dim $1 \
+    --epochs 60 \
+    --model_type bilstm \
+    --name_run $2 \
+    --eval_batch_size 4 \
+    --file_column_dictionary "escape_validation/file_column_dict.json" \
+    --uniprot_seqs_fname "uniprot_gpb_rpob.fasta" \
+    --state_dict_fname "saved_models/fourth_trial_50_embed.pth" \
+    --calc_metrics \
+    --train \
+    --benchmark \
+    --cscs \
+    --analyze_embs \
+    --wandb \
+}
+
+if [ "$1" = 'esm' ]
+then
+  esm $2
+elif [ "$1" = 'embed_var' ]
+then
+  embed_var $2 $3
+elif [ "$1" = 'Lk' ]
+then
+  Lk $2 $3
+elif [ "$1" = 'bilstm' ]
+then
+  bilstm $2 $3
+fi

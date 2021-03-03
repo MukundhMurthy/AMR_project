@@ -18,8 +18,8 @@ initialize_vm () {
 }
 
 transfer_trainer_scripts () {
-  gcloud compute copy-files deeplearning-5-vm:~/AMR_transformer/figures/umaprpoB_louvain.png  \
-  ~/AMR_transformer/figures --zone=us-east1-c
+  gcloud compute copy-files  ~/AMR_transformer/trainer  \
+  deeplearning-5-vm:~/AMR_transformer  --zone=us-east1-c
 }
 
 transfer_trainer_scripts

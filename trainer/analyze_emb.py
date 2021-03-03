@@ -29,8 +29,7 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
         model.cuda()
         device = "cuda"
 
-    X, obs = [], {}
-    obs['seq'] = []
+    obs = {}
     for seq, uniprot_fname in zip(wt_seqs, uniprot_fnames):
         uniprot_seqs = read_fasta(uniprot_fname)
         uniprot_seqs = list(set([str(seq.seq) for seq in uniprot_seqs if args.max_len > len(str(seq.seq)) > args.min_len
@@ -52,7 +51,7 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
             start = i * int(args.eval_batch_size)
             end = start + int(args.eval_batch_size)
             subset = seq_tokens[start:end, :]
-            subset_embeddings = model(subset.long(), repr_layers = repr_layers)[0]
+            subset_embeddings = model(subset.long(), repr_layers=repr_layers)[0]
             list_embeddings.append(subset_embeddings)
         all_embeddings = torch.mean(torch.cat(list_embeddings, dim=0), dim=-2)
         print("the shape is", all_embeddings.shape)
@@ -60,10 +59,9 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
         for i, uniprot_seq in enumerate(uniprot_seqs):
             if uniprot_seq not in wt_seq_dict:
                 wt_seq_dict[uniprot_seq] = {}
-            wt_seq_dict[uniprot_seq]['mean_embedding'] = embedding[i]
-        X.append(embedding.numpy())
-        obs['seq'].extend(uniprot_seqs)
-        X = np.array(X)
+            wt_seq_dict[uniprot_seq]['mean_embedding'] = all_embeddings[i]
+        obs['seq'] = uniprot_seqs
+        X = np.array(all_embeddings.cpu().numpy())
         adata = AnnData(X)
         for key in obs:
             adata.obs[key] = obs[key]
@@ -72,18 +70,18 @@ def analyze_embeddings(args, dataset, model, wt_fname, uniprot_fnames, embedding
         sc.tl.louvain(adata, resolution=1.)
 
         sc.set_figure_params(dpi_save=500)
-        plot_umap(adata, namespace)
+        plot_umap(adata, namespace, args.name_run)
         torch.save(seq_dict, embedding_fname)
         if args.wandb:
-            wandb.save('{}_louvain.png'.format(namespace))
+            wandb.save('{0}_{1}_louvain.png'.format(namespace, args.name_run))
             wandb.save(embedding_fname)
     return embedding_fname
         # interpret_clusters(adata)
 
 
-def plot_umap(adata, namespace):
+def plot_umap(adata, namespace, name_run):
     sc.tl.umap(adata, min_dist=1.)
-    sc.pl.umap(adata, color='louvain', save='{}_louvain.png'.format(namespace))
+    sc.pl.umap(adata, color='louvain', save='{0}_{1}_louvain.png'.format(namespace, name_run))
     # sc.pl.umap(adata, color='subtype', save='{}_subtype.png'.format(namespace))
 
 

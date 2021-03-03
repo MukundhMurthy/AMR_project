@@ -13,7 +13,10 @@ def load_rpob_data(job_dir=False):
         'rifr_comp_brandis_hughes.csv',
         'rifr_primary_brandis.csv',
         'rifr_primary_brandis_pietsch.csv',
-        'rifr_primary_brandis_pietsch_2.csv'
+        'rifr_primary_brandis_pietsch_2.csv',
+        'rifr_dms_replicate_a.txt',
+        'rifr_dms_replicate_b.txt',
+        'rifr_dms_replicate_c.txt'
     ]
     # rifr_primary_mutations = ['R529C', 'S531L']
     # comp_mutations = {} #compensatory secondary mutations (HCMs)
@@ -60,6 +63,27 @@ def load_rpob_data(job_dir=False):
     df_dict['rifr_primary_brandis_pietsch_2.csv']['df'] = df_pbp2[~df_pbp2['rpoB_mutation'].isin(remove_mutations)]
 
     df_dict['rifr_primary_brandis_pietsch_2.csv']['n'] = len(df_pbp2)
+
+    #rifr_dms_replicate_a
+    fname_6 = "escape_validation/rifr_dms_replicate_a.txt" if not job_dir else download_from_gcloud_bucket("replicate_a.txt")
+    df_dmsa = pd.read_csv(fname_6)
+    df_dmsa = df_dmsa[df_dmsa['No_Non_Syn'] == 1]
+    df_dict['rifr_dms_replicate_a.txt']['df'] = df_dmsa
+    df_dict['rifr_dms_replicate_a.txt']['n'] = len(df_dmsa)
+
+    # rifr_dms_replicate_b
+    fname_7 = "escape_validation/rifr_dms_replicate_b.txt" if not job_dir else download_from_gcloud_bucket("replicate_b.txt")
+    df_dmsb = pd.read_csv(fname_7)
+    df_dmsb = df_dmsb[df_dmsb['No_Non_Syn'] == 1]
+    df_dict['rifr_dms_replicate_b.txt']['df'] = df_dmsb
+    df_dict['rifr_dms_replicate_b.txt']['n'] = len(df_dmsb)
+
+    # rifr_dms_replicate_c
+    fname_8 = "escape_validation/rifr_dms_replicate_c.txt" if not job_dir else download_from_gcloud_bucket("replicate_c.txt")
+    df_dmsc = pd.read_csv(fname_8)
+    df_dmsc = df_dmsc[df_dmsc['No_Non_Syn'] == 1]
+    df_dict['rifr_dms_replicate_c.txt']['df'] = df_dmsc
+    df_dict['rifr_dms_replicate_c.txt']['n'] = len(df_dmsc)
 
     return df_dict
 

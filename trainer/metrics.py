@@ -1,10 +1,9 @@
-from .utils import read_fasta, mut_abbrev_to_seq, generate_vocab, calc_bedroc, download_from_gcloud_bucket
+from .utils import read_fasta, mut_abbrev_to_seq, generate_vocab, calc_bedroc, download_from_gcloud_bucket, compute_p
 from .load_data import load_rpob_data, load_rpoa_data, load_rpoc_data
 import torch
 import torch.nn.functional as F
-from scipy.stats import rankdata
-from scipy.stats import spearmanr
-from sklearn.metrics import average_precision_score
+from scipy.stats import rankdata, spearmanr, mannwhitneyu
+from sklearn.metrics import average_precision_score, auc
 import itertools
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from matplotlib import pyplot as plt
@@ -85,9 +84,10 @@ class Metrics:
         self.primary_fnames = [k for k, v in self.df_dict.items() if 'primary' in k]
         self.all_escape_muts = self.gather_all_escape_muts(self.primary_fnames, self.df_dict,
                                                            self.file_column_dictionary)
+        self.primary_fnames = self.primary_fnames + [k for k, v in self.df_dict.items() if "dms" in k]
         self.comp_fnames = [k for k, v in self.df_dict.items() if 'comp' in k] if comb else []
-        self.alpha = 20
-        self.results_fname = "{0}_{1}.json".format(results_fname, model_type)
+        self.alpha = alpha
+        self.results_prefix = "{0}_{1}_{2}".format(results_fname, model_type, gene)
         self.wandb = wandb
 
     def load_rpoa(self):
@@ -107,6 +107,7 @@ class Metrics:
                    primary_mut=None, recalc_l1_diff=False):
         mut_column = self.file_column_dictionary[fname]['mutation_column_name']
         mut_list = df_dict[fname]['df'][mut_column].tolist()
+        
         # mut_list = [mut for mut in mut_list if mut not in self.removed_muts]
         semantics_list, grammar_list = [], []
         for i, mut in tqdm(enumerate(mut_list)):
@@ -218,7 +219,7 @@ class Metrics:
         self.weight_dict[wt] = rpob_mut_seq_dict
         torch.save(self.weight_dict, self.embedding_file)
 
-        with open('results/{0}'.format(self.results_fname), 'w') as f:
+        with open('results/{0}.json'.format(self.results_prefix), 'w') as f:
             json.dump(self.results_dict, f, indent=4)
         return self.results_dict, rpob_mut_seq_dict
 
@@ -244,18 +245,17 @@ class Metrics:
         raise NotImplementedError
 
     def escape_metrics(self, mut_seq_dict, semantic_scaling, grammatical_scaling, cscs_scaling):
-
+        ipdb.set_trace()
         func_dict = {
             'min_max': MinMaxScaler,
             'standard': StandardScaler,
             'robust': RobustScaler
         }
-        list_primary_mutations = self.gather_all_escape_muts(self.primary_fnames, self.df_dict,
-                                                             self.file_column_dictionary)
+        list_primary_mutations = self.all_escape_muts
 
         grammar_list, semantic_list = [], []
         idx_list = []
-        mut_seq_dict = {k: v for k, v in mut_seq_dict.items() if k != str(self.wt_seqs[0].seq)}
+        mut_seq_dict = {k: v for k, v in mut_seq_dict.items() if k != str(self.wt_seqs[0].seq) and 'mut_abbrev' in mut_seq_dict[k]}
         for idx, (mut, _) in enumerate(mut_seq_dict.items()):
             if not mut == str(self.wt_seqs[0].seq):
                 mut_name = mut_seq_dict[mut]['mut_abbrev']
@@ -269,16 +269,26 @@ class Metrics:
                 continue
 
         fig, ax = plt.subplots(2)
-        ax[0].hist(grammar_list, bins=20)
+        ax[0].hist(grammar_list, bins=30)
         ax[0].set_title('grammaticality distribution')
-        ax[1].hist(semantic_list, bins=20)
+        ax[0].xlabel(r'$ \Delta \mathbf{\hat{z}}')
+        ax[1].hist(semantic_list, bins=30)
         ax[1].set_title('semantics distribution')
+        ax[1].xlabel(r'$ \hat{p}(x_i | \mathbf{x}_{[N] ∖ \{i\} })')
+        fig.tight_layout(pad=3.0)
         fig.savefig('cscs_distributions.png')
+        if self.wandb:
+            wandb.save('cscs_distributions.png')
+
+        probs = np.array(grammar_list).reshape(-1, 1)
+        change = np.array(semantic_list).reshape(-1, 1)
+        escape_prob = np.array(grammar_list).reshape(-1, 1)[idx_list]
+        escape_change = np.array(semantic_list).reshape(-1, 1)[idx_list]
 
         grammar_scaled = func_dict[grammatical_scaling]().fit_transform(np.array(grammar_list).reshape(-1, 1))
         semantics_scaled = func_dict[semantic_scaling]().fit_transform(np.array(semantic_list).reshape(-1, 1))
 
-        cscs = grammar_scaled + self.beta * semantics_scaled
+        cscs = (rankdata(grammar_scaled) + self.beta * rankdata(semantics_scaled)).reshape(-1, 1)
         cscs_scaled = np.array(func_dict[cscs_scaling]().fit_transform(cscs))
 
         cscs_scaled, semantics_scaled, grammar_scaled = np.squeeze(cscs_scaled, axis=1), \
@@ -299,6 +309,89 @@ class Metrics:
 
         cscs_bedroc, semantic_bedroc, grammar_bedroc = [calc_bedroc(array[:, 0], self.alpha) for array in sorted_arrays]
 
+        log_prob = np.log10(probs)
+        log_change = np.log10(change)
+        log_escape_prob = np.log10(escape_prob)
+        log_escape_change = np.log10(escape_change)
+        acq_argsort = rankdata(cscs)
+
+        escape_rank_dist = acq_argsort[idx_list]
+        max_consider = len(grammar_list)
+        n_consider = np.array([i + 1 for i in range(max_consider)])
+        n_escape = np.array([sum(escape_rank_dist <= i + 1)
+                             for i in range(max_consider)])
+        norm = max(n_consider) * max(n_escape)
+        norm_auc = auc(n_consider, n_escape) / norm
+
+        escape_rank_prob = rankdata(probs)[idx_list]
+        n_escape_prob = np.array([sum(escape_rank_prob <= i + 1)
+                                  for i in range(max_consider)])
+        norm_auc_prob = auc(n_consider, n_escape_prob) / norm
+
+        escape_rank_change = rankdata(change)[idx_list]
+        n_escape_change = np.array([sum(escape_rank_change <= i + 1)
+                                    for i in range(max_consider)])
+        norm_auc_change = auc(n_consider, n_escape_change) / norm
+
+        plt.figure()
+        plt.plot(n_consider, n_escape)
+        plt.plot(n_consider, n_escape_change, c='C0', linestyle='-.')
+        plt.plot(n_consider, n_escape_prob, c='C0', linestyle=':')
+        plt.plot(n_consider, n_consider * (len(escape_prob) / len(grammar_list)),
+                 c='gray', linestyle='--')
+
+        plt.xlabel(r'$ \log_{10}() $')
+        plt.ylabel(r'$ \log_{10}(\Delta \mathbf{\hat{z}}) $')
+
+        plt.legend([
+            r'$ \Delta \mathbf{\hat{z}} + ' +
+            r'\beta \hat{p}(x_i | \mathbf{x}_{[N] ∖ \{i\} }) $,' +
+            (' AUC = {:.3f}'.format(norm_auc)),
+            r'$  \Delta \mathbf{\hat{z}} $ only,' +
+            (' AUC = {:.3f}'.format(norm_auc_change)),
+            r'$ \hat{p}(x_i | \mathbf{x}_{[N] ∖ \{i\} }) $ only,' +
+            (' AUC = {:.3f}'.format(norm_auc_prob)),
+            'Random guessing, AUC = 0.500'
+        ])
+        plt.xlabel('Top N')
+        plt.ylabel('Number of escape mutations in top N')
+        plt.savefig('figures/{}_consider_escape.png'
+                    .format(self.results_prefix), dpi=300)
+
+        if self.wandb:
+            wandb.save('figures/{}_consider_escape.png'.format(self.results_prefix))
+
+        plt.close()
+
+        plt.figure()
+        plt.scatter(log_prob, log_change, c=cscs,
+                    cmap='viridis', alpha=0.2)
+        plt.scatter(log_escape_prob, log_escape_change, c='red',
+                    alpha=0.3, marker='x')
+        plt.xlabel(r'$ \log_{10}(\hat{p}(x_i | \mathbf{x}_{[N] ∖ \{i\} })) $')
+        plt.ylabel(r'$ \log_{10}(\Delta \mathbf{\hat{z}}) $')
+        plt.savefig('figures/{}_acquisition.png'
+                    .format(self.results_prefix), dpi=300)
+
+        if self.wandb:
+            wandb.save('figures/{}_acquisition.png'.format(self.results_prefix))
+
+        plt.close()
+
+        rand_idx = np.random.choice(len(probs), len(escape_prob))
+        plt.figure()
+        plt.scatter(log_prob, log_change, c=cscs,
+                    cmap='viridis', alpha=0.3)
+        plt.scatter(log_prob[rand_idx], log_change[rand_idx], c='red',
+                    alpha=0.5, marker='x')
+        plt.xlabel(r'$ \log_{10}(\hat{p}(x_i | \mathbf{x}_{[N] ∖ \{i\} })) $')
+        plt.ylabel(r'$ \log_{10}(\Delta \mathbf{\hat{z}}) $')
+        plt.savefig('figures/{}_acquisition_rand.png'
+                    .format(self.results_prefix), dpi=300)
+        plt.close()
+
+        norm_auc_p = compute_p(norm_auc, len(self.all_escape_muts), len(grammar_list))
+
         self.results_dict[self.gene]['primary']['overall_escape_id'] = {
             'cscs BEDROC': cscs_bedroc,
             'semantic BEDROC': semantic_bedroc,
@@ -308,21 +401,37 @@ class Metrics:
             'grammar APS': grammar_aps
         }
 
+        print('{:.4g} (mean log prob), {:.4g} (mean log prob escape), '
+              '{:.4g} (p-value)'
+              .format(log_prob.mean(), log_escape_prob.mean(),
+                      mannwhitneyu(log_prob, log_escape_prob,
+                                      alternative='two-sided')[1]))
+        print('{:.4g} (mean log change), {:.4g} (mean log change escape), '
+              '{:.4g} (p-value)'
+              .format(change.mean(), escape_change.mean(),
+                      mannwhitneyu(change, escape_change,
+                                      alternative='two-sided')[1]))
+
         if self.wandb:
             wandb.log({
-                '{0} cscs BEDROC'.format(self.model_type): cscs_bedroc,
-                '{0} semantic BEDROC'.format(self.model_type): semantic_bedroc,
-                '{0} grammar BEDROC'.format(self.model_type): grammar_bedroc,
-                '{0} cscs APS'.format(self.model_type): cscs_aps,
-                '{0} semantic APS'.format(self.model_type): semantic_aps,
-                '{0} grammar APS'.format(self.model_type): grammar_aps
+                'cscs BEDROC': cscs_bedroc,
+                'semantic BEDROC': semantic_bedroc,
+                'grammar BEDROC': grammar_bedroc,
+                'cscs APS': cscs_aps,
+                'semantic APS': semantic_aps,
+                'grammar APS': grammar_aps,
+                'AUC (CSCS)': norm_auc,
+                'AUC CSCS P': norm_auc_p,
+                'AUC (semantics)': norm_auc_change,
+                'AUC (grammaticality)': norm_auc_prob,
             })
+
         if not os.path.isdir('results'):
             os.mkdir('results')
-        with open('results/{0}'.format(self.results_fname), 'w') as f:
+        with open('results/{0}.json'.format(self.results_prefix), 'w') as f:
             json.dump(self.results_dict, f, indent=4)
         if self.wandb:
-            wandb.save('results/{0}'.format(self.results_fname))
+            wandb.save('results/{0}.json'.format(self.results_prefix))
         return cscs_aps, semantic_aps, grammar_aps
 
 

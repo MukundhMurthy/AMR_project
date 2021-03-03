@@ -18,5 +18,17 @@
   "rifr_primary_brandis_pietsch_2.csv": {
     "mutation_column_name": "rpoB_mutation",
     "eval_column_names": ["lb_rifampin","lb_rifampin_100"]
+  },
+  "rifr_dms_replicate_a.txt": {
+    "mutation_column_name": "Non_Syn_Mutations",
+    "eval_column_names": ["pre", "ten", "fifty", "hundred", "ten_fitness", "fifty_fitness", "hundred_fitness"]
+  },
+  "rifr_dms_replicate_b.txt": {
+    "mutation_column_name": "Non_Syn_Mutations",
+    "eval_column_names": ["pre", "ten", "fifty", "hundred", "ten_fitness", "fifty_fitness", "hundred_fitness"]
+  },
+  "rifr_dms_replicate_c.txt": {
+    "mutation_column_name": "Non_Syn_Mutations",
+    "eval_column_names": ["pre", "ten", "fifty", "hundred", "ten_fitness", "fifty_fitness", "hundred_fitness"]
   }
 }
